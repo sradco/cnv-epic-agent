@@ -26,6 +26,15 @@ from agent.planner.llm import complete, parse_json_response
 
 logger = logging.getLogger(__name__)
 
+_FIBONACCI = frozenset({1, 2, 3, 5, 8, 13})
+
+
+def _clamp_fibonacci(value: int) -> int:
+    """Clamp a value to the nearest Fibonacci SP value."""
+    if value in _FIBONACCI:
+        return value
+    return min(_FIBONACCI, key=lambda f: abs(f - value))
+
 
 def compose_stories(
     analysis: dict[str, Any],
@@ -38,8 +47,10 @@ def compose_stories(
     """Compose stories for the given analysis result.
 
     Calls the LLM to reason about the epic's content and produce
-    stories with epic-specific rationale.  Falls back gracefully
-    if the LLM response cannot be parsed.
+    stories with epic-specific rationale.  Raises ``LLMError`` on
+    LLM failures and ``json.JSONDecodeError`` on unparseable output
+    so the caller can surface errors explicitly.  Post-filters
+    the LLM output to only include enabled categories.
 
     Parameters:
     - analysis: dict from build_analysis_result (or get_analysis_data)
@@ -80,11 +91,12 @@ def compose_stories(
         },
     }
 
+    gaps = analysis.get("gaps", [])
     logger.info(
         "Calling LLM (%s) for %s with %d gaps",
         model,
         analysis.get("epic_key", "unknown"),
-        len(analysis["gaps"]),
+        len(gaps),
     )
 
     raw = complete(
@@ -94,25 +106,33 @@ def compose_stories(
         temperature=temperature,
     )
 
-    try:
-        parsed = parse_json_response(raw)
-    except Exception:
-        logger.error(
-            "Failed to parse LLM response for %s",
-            analysis.get("epic_key", "unknown"),
-            exc_info=True,
-        )
-        return []
+    parsed = parse_json_response(raw)
 
+    allowed = set(categories) if categories else None
     stories: list[StoryPayload] = []
     for item in parsed.get("stories", []):
+        cat = item.get("category", "")
+        if allowed and cat not in allowed:
+            logger.warning(
+                "Dropping story with category %r (not in %s)",
+                cat, allowed,
+            )
+            continue
         sp = item.get("story_points")
+        try:
+            sp_int = _clamp_fibonacci(int(sp)) if sp is not None else None
+        except (ValueError, TypeError):
+            logger.warning(
+                "Invalid story_points %r for %s, ignoring",
+                sp, item.get("summary", ""),
+            )
+            sp_int = None
         stories.append(
             StoryPayload(
-                category=item.get("category", ""),
+                category=cat,
                 summary=item.get("summary", ""),
                 description=item.get("description", ""),
-                story_points=int(sp) if sp is not None else None,
+                story_points=sp_int,
             )
         )
 
@@ -180,24 +200,25 @@ def estimate_story_points(
         temperature=temperature,
     )
 
-    try:
-        parsed = parse_json_response(raw)
-    except Exception:
-        logger.error(
-            "Failed to parse SP estimation response", exc_info=True,
-        )
-        return {}
+    parsed = parse_json_response(raw)
 
     result: dict[str, int] = {}
     for item in parsed.get("estimates", []):
         key = item.get("issue_key", "")
         sp = item.get("story_points")
         if key and sp is not None:
-            result[key] = int(sp)
+            raw_sp = int(sp)
+            sp_int = _clamp_fibonacci(raw_sp)
+            if sp_int != raw_sp:
+                logger.warning(
+                    "Non-Fibonacci SP %d for %s, clamped to %d",
+                    raw_sp, key, sp_int,
+                )
+            result[key] = sp_int
             rationale = item.get("rationale", "")
             if rationale:
                 logger.debug(
-                    "SP estimate %s=%d: %s", key, int(sp), rationale,
+                    "SP estimate %s=%d: %s", key, sp_int, rationale,
                 )
 
     logger.info("Estimated SP for %d stories", len(result))

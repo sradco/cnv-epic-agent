@@ -2,17 +2,54 @@
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import logging
 import os
+import re
+import time
 from typing import Any
 
 from jira import JIRA
 
-from agent.analyzer.analysis import IssueDoc
+from schemas.issue_doc import IssueDoc
 
 logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 200
+_JIRA_MAX_RETRIES = 3
+_JIRA_INITIAL_BACKOFF_S = 1.0
+
+
+def _retry_on_jira_error(func):
+    """Decorator: retry Jira API calls with exponential backoff.
+
+    Retries on transient HTTP errors (429, 5xx, network).
+    Non-retryable errors (400, 401, 403, 404) are raised immediately.
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        last_err: Exception | None = None
+        for attempt in range(_JIRA_MAX_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                exc_text = str(exc)
+                status = getattr(exc, "status_code", None)
+                if status and status < 500 and status != 429:
+                    raise
+                last_err = exc
+                if attempt < _JIRA_MAX_RETRIES - 1:
+                    delay = _JIRA_INITIAL_BACKOFF_S * (2 ** attempt)
+                    logger.warning(
+                        "Jira API %s failed (attempt %d/%d), "
+                        "retrying in %.1fs: %s",
+                        func.__name__, attempt + 1,
+                        _JIRA_MAX_RETRIES, delay, exc_text,
+                    )
+                    time.sleep(delay)
+        raise last_err  # type: ignore[misc]
+    return wrapper
 
 
 def _search_all(
@@ -52,6 +89,7 @@ def get_jira_client(cfg: dict[str, Any]) -> JIRA:
     return JIRA(server=url, token_auth=token)
 
 
+@_retry_on_jira_error
 def search_epics(
     client: JIRA,
     cfg: dict[str, Any],
@@ -71,6 +109,7 @@ def search_epics(
     return _search_all(client, jql)
 
 
+@_retry_on_jira_error
 def fetch_child_issues(
     client: JIRA,
     cfg: dict[str, Any],
@@ -99,24 +138,37 @@ def fetch_epic_with_children(
     return epic, children
 
 
+def _normalize_summary(summary: str) -> str:
+    """Normalize a summary for dedup comparison.
+
+    Strips brackets, collapses whitespace, and lowercases so that
+    minor LLM rephrasing doesn't cause duplicates.
+    """
+    s = summary.lower()
+    s = re.sub(r'\[.*?\]', '', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
 def find_existing_obs_stories(
     client: JIRA,
     cfg: dict[str, Any],
     obs_epic_key: str,
     source_epic_key: str,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Find existing observability stories related to a source epic.
 
-    Uses three complementary searches to avoid duplicates:
-    1. Stories under the obs epic with the scanner label referencing the source epic
-    2. Any issue linked to the source epic with the scanner label
-    3. Any issue linked to the source epic with "[Observability]" in the summary
+    Uses label-based search (not summary text matching) for robust
+    dedup.  Collects from:
+    1. Stories under the obs epic with the scanner label
+    2. Any issue with the scanner label referencing the source epic
+    3. Any issue linked to the source epic with "[Observability]"
     """
     creation_cfg = cfg.get("creation", {})
     story_label = creation_cfg.get("story_label", "epic-agent-generated")
 
     seen_keys: set[str] = set()
-    existing: list[dict[str, str]] = []
+    existing: list[dict[str, Any]] = []
 
     def _collect(issues: list[Any]) -> None:
         for issue in issues:
@@ -124,21 +176,30 @@ def find_existing_obs_stories(
                 continue
             seen_keys.add(issue.key)
             summary = str(getattr(issue.fields, "summary", "") or "")
-            existing.append({"key": issue.key, "summary": summary})
+            labels = getattr(issue.fields, "labels", []) or []
+            desc = str(getattr(issue.fields, "description", "") or "")
+            existing.append({
+                "key": issue.key,
+                "summary": summary,
+                "labels": labels,
+                "description": desc,
+            })
 
     # 1. Stories under the obs epic with the scanner label
     if obs_epic_key and obs_epic_key != "(DRY-RUN)":
         jql = (
             f'"Epic Link" = {obs_epic_key} '
-            f'AND labels = "{story_label}" '
-            f'AND summary ~ "{source_epic_key}"'
+            f'AND labels = "{story_label}"'
         )
         try:
-            _collect(client.search_issues(jql, maxResults=50))
+            _collect(_search_all(client, jql))
         except Exception:
-            logger.warning("JQL query failed (obs epic children): %s", jql, exc_info=True)
+            logger.warning(
+                "JQL query failed (obs epic children): %s",
+                jql, exc_info=True,
+            )
 
-    # 2. Any issue with the scanner label referencing the source epic in summary
+    # 2. Any issue with the scanner label referencing the source epic
     jql_label = (
         f'labels = "{story_label}" '
         f'AND summary ~ "{source_epic_key}"'
@@ -146,9 +207,12 @@ def find_existing_obs_stories(
     try:
         _collect(client.search_issues(jql_label, maxResults=50))
     except Exception:
-        logger.warning("JQL query failed (label search): %s", jql_label, exc_info=True)
+        logger.warning(
+            "JQL query failed (label search): %s",
+            jql_label, exc_info=True,
+        )
 
-    # 3. Issues linked to the source epic with "[Observability]" in the summary
+    # 3. Issues linked to the source epic with "[Observability]"
     jql_linked = (
         f'issue in linkedIssues({source_epic_key}) '
         f'AND summary ~ "[Observability]"'
@@ -156,11 +220,62 @@ def find_existing_obs_stories(
     try:
         _collect(client.search_issues(jql_linked, maxResults=50))
     except Exception:
-        logger.warning("JQL query failed (linked issues): %s", jql_linked, exc_info=True)
+        logger.warning(
+            "JQL query failed (linked issues): %s",
+            jql_linked, exc_info=True,
+        )
 
     return existing
 
 
+def _extract_source_epic(story: dict[str, Any]) -> str | None:
+    """Extract source epic key from description fingerprint line."""
+    desc = story.get("description", "")
+    m = re.search(r'source_epic=([A-Z]+-\d+)', desc)
+    return m.group(1) if m else None
+
+
+def _extract_summary_hash(story: dict[str, Any]) -> str | None:
+    """Extract summary hash from description fingerprint line."""
+    desc = story.get("description", "")
+    m = re.search(r'summary_hash=([a-f0-9]+)', desc)
+    return m.group(1) if m else None
+
+
+def _hash_summary(summary: str) -> str:
+    """Produce a short hash of a normalized summary for fingerprinting."""
+    norm = _normalize_summary(summary)
+    return hashlib.sha256(norm.encode()).hexdigest()[:12]
+
+
+def is_duplicate_story(
+    story_summary: str,
+    source_epic_key: str,
+    existing: list[dict[str, Any]],
+) -> bool:
+    """Check if a story is a duplicate using fingerprint or summary.
+
+    Fingerprint matching uses source_epic + summary_hash for
+    per-story uniqueness (so multiple stories in the same category
+    for the same epic are allowed).  Falls back to normalized
+    summary matching for older stories without fingerprints.
+    """
+    new_hash = _hash_summary(story_summary)
+    norm_new = _normalize_summary(story_summary)
+
+    for e in existing:
+        e_hash = _extract_summary_hash(e)
+        e_source = _extract_source_epic(e)
+        if e_source == source_epic_key and e_hash == new_hash:
+            return True
+
+        if _normalize_summary(e.get("summary", "")) == norm_new:
+            return True
+
+    return False
+
+
+@_retry_on_jira_error
 def find_or_create_obs_epic(
     client: JIRA,
     cfg: dict[str, Any],
@@ -236,6 +351,26 @@ def _should_set_story_points(
     return False
 
 
+class StoryLinkWarning:
+    """Records partial link failures during story creation."""
+
+    def __init__(self) -> None:
+        self.epic_link_failed = False
+        self.relates_link_failed = False
+
+    @property
+    def has_warnings(self) -> bool:
+        return self.epic_link_failed or self.relates_link_failed
+
+    def warning_text(self) -> str:
+        parts = []
+        if self.epic_link_failed:
+            parts.append("epic-link failed")
+        if self.relates_link_failed:
+            parts.append("relates-link failed")
+        return ", ".join(parts)
+
+
 def create_obs_story(
     client: JIRA,
     cfg: dict[str, Any],
@@ -244,8 +379,13 @@ def create_obs_story(
     summary: str,
     description: str,
     story_points: int | None = None,
-) -> Any:
-    """Create a story under the obs epic and link it to the source epic."""
+    category: str = "",
+) -> tuple[Any, StoryLinkWarning]:
+    """Create a story under the obs epic and link it to the source epic.
+
+    Returns (issue, warnings).  Embeds a fingerprint in the
+    description for robust deduplication on subsequent runs.
+    """
     creation_cfg = cfg.get("creation", {})
     project = creation_cfg.get("project", "CNV")
     component = creation_cfg.get("component", "CNV Install, Upgrade and Operators")
@@ -255,10 +395,20 @@ def create_obs_story(
         "story_points_field", "story_points",
     )
 
+    s_hash = _hash_summary(summary)
+    fingerprint = (
+        f"\n\n---\n"
+        f"_auto-generated by cnv-epic-agent | "
+        f"source_epic={source_epic_key} | "
+        f"category={category} | "
+        f"summary_hash={s_hash}_"
+    )
+    full_description = description + fingerprint
+
     fields: dict[str, Any] = {
         "project": {"key": project},
         "summary": summary,
-        "description": description,
+        "description": full_description,
         "issuetype": {"name": "Story"},
         "labels": [epic_label, story_label],
         "components": [{"name": component}],
@@ -268,32 +418,70 @@ def create_obs_story(
         fields[sp_field] = story_points
 
     issue = client.create_issue(fields=fields)
+    warnings = StoryLinkWarning()
 
     # Link the story to the observability epic via Epic Link
-    try:
-        client.add_issues_to_epic(obs_epic_key, [issue.key])
-    except Exception:
-        logger.warning(
-            "Failed to add %s to epic %s (Epic Link field may vary)",
-            issue.key, obs_epic_key, exc_info=True,
-        )
+    for attempt in range(2):
+        try:
+            client.add_issues_to_epic(obs_epic_key, [issue.key])
+            break
+        except Exception:
+            if attempt == 0:
+                logger.warning(
+                    "Epic link failed for %s → %s, retrying...",
+                    issue.key, obs_epic_key,
+                )
+                time.sleep(1)
+            else:
+                logger.error(
+                    "Failed to add %s to epic %s after retry",
+                    issue.key, obs_epic_key, exc_info=True,
+                )
+                warnings.epic_link_failed = True
+                try:
+                    client.add_comment(
+                        issue.key,
+                        f"⚠ Failed to set Epic Link to {obs_epic_key}. "
+                        "Please add manually.",
+                    )
+                except Exception:
+                    pass
 
-    # Link to the source feature epic with "is caused by" / "relates to"
-    try:
-        client.create_issue_link(
-            type="Relates",
-            inwardIssue=issue.key,
-            outwardIssue=source_epic_key,
-        )
-    except Exception:
-        logger.warning(
-            "Failed to link %s to %s (link type may differ)",
-            issue.key, source_epic_key, exc_info=True,
-        )
+    # Link to the source feature epic
+    for attempt in range(2):
+        try:
+            client.create_issue_link(
+                type="Relates",
+                inwardIssue=issue.key,
+                outwardIssue=source_epic_key,
+            )
+            break
+        except Exception:
+            if attempt == 0:
+                logger.warning(
+                    "Relates link failed for %s → %s, retrying...",
+                    issue.key, source_epic_key,
+                )
+                time.sleep(1)
+            else:
+                logger.error(
+                    "Failed to link %s to %s after retry",
+                    issue.key, source_epic_key, exc_info=True,
+                )
+                warnings.relates_link_failed = True
+                try:
+                    client.add_comment(
+                        issue.key,
+                        f"⚠ Failed to create 'Relates' link to "
+                        f"{source_epic_key}. Please add manually.",
+                    )
+                except Exception:
+                    pass
 
-    return issue
+    return issue, warnings
 
 
+@_retry_on_jira_error
 def update_story_points(
     client: JIRA,
     cfg: dict[str, Any],
@@ -338,6 +526,7 @@ def update_story_points(
     return True
 
 
+@_retry_on_jira_error
 def fetch_unsized_stories(
     client: JIRA,
     cfg: dict[str, Any],
@@ -359,14 +548,7 @@ def fetch_unsized_stories(
         f'project = {proj} AND "Epic Link" = {epic_key} '
         f'AND type = Story'
     )
-    try:
-        issues = _search_all(client, jql)
-    except Exception:
-        logger.warning(
-            "Failed to fetch children of %s for SP scan",
-            epic_key, exc_info=True,
-        )
-        return []
+    issues = _search_all(client, jql)
 
     unsized: list[Any] = []
     for issue in issues:

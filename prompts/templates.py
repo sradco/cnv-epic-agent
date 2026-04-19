@@ -9,12 +9,14 @@ LLM-estimated story points via injected guidance from config.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from schemas.stories import SP_ESTIMATION_JSON_SCHEMA, STORY_JSON_SCHEMA
 
 _PROPOSALS_MAX_CHARS = 4000
 _TELEMETRY_MAX_CHARS = 2000
+_MAX_EXISTING_ITEMS_PER_CATEGORY = 5
 
 
 def _capped_json(
@@ -35,98 +37,116 @@ def _capped_json(
 
     if isinstance(data, list):
         total = len(data)
-        subset = list(data)
-        while subset:
-            attempt = json.dumps(subset, indent=2, default=str)
+        lo, hi = 0, total
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            attempt = json.dumps(data[:mid], indent=2, default=str)
             if len(attempt) <= max_chars:
-                return (
-                    attempt.rstrip()
-                    + f"\n// (truncated — {total} total {label},"
-                    + f" showing top {len(subset)})"
-                )
-            subset.pop()
-        return f"[]  // (truncated — {total} total {label})"
+                lo = mid
+            else:
+                hi = mid - 1
+        if lo == 0:
+            return f"[]  // (truncated — {total} total {label})"
+        attempt = json.dumps(data[:lo], indent=2, default=str)
+        return (
+            attempt.rstrip()
+            + f"\n// (truncated — {total} total {label},"
+            + f" showing top {lo})"
+        )
 
     if isinstance(data, dict):
         total = len(data)
         keys = list(data.keys())
-        while keys:
-            subset_dict = {k: data[k] for k in keys}
+        lo, hi = 0, total
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            subset_dict = {k: data[k] for k in keys[:mid]}
             attempt = json.dumps(subset_dict, indent=2, default=str)
             if len(attempt) <= max_chars:
-                return (
-                    attempt.rstrip()
-                    + f"\n// (truncated — {total} total {label},"
-                    + f" showing top {len(keys)})"
-                )
-            keys.pop()
-        return f"{{}}  // (truncated — {total} total {label})"
+                lo = mid
+            else:
+                hi = mid - 1
+        if lo == 0:
+            return f"{{}}  // (truncated — {total} total {label})"
+        subset_dict = {k: data[k] for k in keys[:lo]}
+        attempt = json.dumps(subset_dict, indent=2, default=str)
+        return (
+            attempt.rstrip()
+            + f"\n// (truncated — {total} total {label},"
+            + f" showing top {lo})"
+        )
 
     return full[:max_chars] + f"\n// (truncated — full output was {len(full)} chars)"
 
+
+def _trim_existing_items(
+    proposals: dict[str, Any],
+    max_per_category: int = _MAX_EXISTING_ITEMS_PER_CATEGORY,
+) -> dict[str, Any]:
+    """Return a copy of *proposals* with existing items capped.
+
+    Keeps all proposed (new) items intact but limits existing
+    (reference) items to *max_per_category* to save tokens.
+    """
+    trimmed: dict[str, Any] = {}
+    for category, data in proposals.items():
+        if not isinstance(data, dict):
+            trimmed[category] = data
+            continue
+        existing = data.get("existing", [])
+        total = len(existing)
+        capped = existing[:max_per_category]
+        if total > max_per_category:
+            capped.append({
+                "_note": f"{total - max_per_category} more existing "
+                         f"items omitted for brevity",
+            })
+        trimmed[category] = {
+            "existing": capped,
+            "proposed": data.get("proposed", []),
+        }
+    return trimmed
+
+
+_JIRA_HEADING_RE = re.compile(r'^h[1-6]\.\s*', re.MULTILINE)
+_JIRA_LINK_RE = re.compile(
+    r'\[([^|]*?)\|([^]]*?)(?:\|[^]]*?)?\]',
+)
+_JIRA_BOLD_RE = re.compile(r'\*(\S[^*]*\S|\S)\*')
+_JIRA_PANEL_RE = re.compile(
+    r'\{(?:panel|code|noformat|quote)[^}]*\}', re.IGNORECASE,
+)
+
+
+def strip_jira_markup(text: str) -> str:
+    """Convert Jira wiki markup to plain text.
+
+    Handles headings (h1. … h6.), links, bold, and panel/code macros.
+    """
+    text = _JIRA_HEADING_RE.sub('', text)
+    text = _JIRA_LINK_RE.sub(r'\1', text)
+    text = _JIRA_BOLD_RE.sub(r'\1', text)
+    text = _JIRA_PANEL_RE.sub('', text)
+    return text.strip()
+
+
 SYSTEM_PROMPT = """\
-You are an expert Site Reliability Engineer and engineering lead
-specializing in KubeVirt / CNV.  Your job is to compose Jira stories
-for a feature epic across multiple categories.
+You are an SRE lead for KubeVirt/CNV. Compose Jira stories for a \
+feature epic.
 
-## Observability stories (metrics, alerts, dashboards, telemetry)
+Rules:
+- Observability stories: explain *why* instrumentation matters, \
+reference existing codebase artifacts, use \
+kubevirt_<component>_<noun>_<unit> naming, CamelCase alert names.
+- Docs stories: only when epic changes user-facing behavior/APIs.
+- QE stories: reference child story keys, cover happy path + edge \
+cases + failure modes. Only when genuinely testable changes exist.
+- Story points: Fibonacci (1,2,3,5,8,13) by complexity. No SP on bugs.
+- Include acceptance criteria as a checklist in every story description.
+- Only produce stories for enabled categories. Skip docs/QE unless \
+warranted.
 
-- Each story must explain *why* the proposed instrumentation matters for
-  the specific feature, not just restate what it is.
-- Reference existing artifacts found in the codebase (metrics, alerts,
-  panels) and explain whether they already cover the new behaviour or
-  need extending.
-- Proposed new items must include concrete metric names following the
-  ``kubevirt_<component>_<noun>_<unit>`` convention.
-- Alert names must use CamelCase with a component prefix.
-- Dashboard panel suggestions must reference the target dashboard and
-  explain what operators will learn from the panel.
-- Telemetry suggestions must justify why the recording rule is suitable
-  for cluster-level aggregation and adoption tracking.
-
-## Documentation stories (docs)
-
-- Only propose a docs story when the epic genuinely changes user-facing
-  behavior, APIs, CLI flags, or UI — not for internal refactors.
-- The story must specify *which* docs need updating (API reference,
-  user guide, release notes, etc.) and why.
-
-## QE stories (qe)
-
-- Review ALL child stories under the epic and identify which ones
-  introduce testable changes (runtime behavior, APIs, UI, CLI,
-  configuration).
-- The QE story must reference the specific child stories it covers
-  and explain what test scenarios are needed for each.
-- Ensure full coverage: every child story that changes user-facing
-  behavior or introduces a new code path must be addressed in the
-  QE test plan.
-- Group related test areas into a single QE story when they share
-  the same component, but split into multiple QE stories if the
-  epic spans distinct subsystems.
-- Each QE story must outline: happy path, edge cases, failure modes,
-  upgrade/rollback scenarios (if applicable), and performance
-  considerations.
-- Only propose QE stories when the epic has child stories with
-  genuinely testable changes — not for docs-only or config-only work.
-
-## Story points
-
-For every **story** you produce (all categories), estimate story points
-on the Fibonacci scale (1, 2, 3, 5, 8, 13) based on implementation
-complexity.  Do NOT assign story points to bugs — only stories.
-If a story already has story points set (any value other than 0 or
-0.42), do not override them.
-
-## General rules
-
-- Story descriptions must include acceptance criteria as a checklist.
-- Only produce stories for categories that are listed in the
-  "Enabled categories" section of the prompt.
-- Do NOT produce docs or QE stories unless genuinely warranted by the
-  epic's content.
-
-Return your answer as JSON matching the provided schema.
+Return JSON matching the provided schema.
 """
 
 
@@ -136,17 +156,18 @@ def build_story_composition_prompt(
     categories: list[str] | None = None,
     category_guidance: dict[str, Any] | None = None,
     story_points_guidance: str = "",
+    include_schema: bool = False,
 ) -> str:
     """Build the user-message prompt from a ``build_analysis_result`` dict.
-
-    The prompt embeds the full analysis evidence so the LLM can write
-    epic-specific rationale for each story.
 
     Parameters:
     - analysis: dict from build_analysis_result
     - categories: which categories the LLM should produce stories for
     - category_guidance: per-category trigger/criteria from config
     - story_points_guidance: free-text sizing guidance from config
+    - include_schema: embed the JSON schema in the prompt body.
+      Set False (default) when the caller passes ``response_format``
+      to the LLM, avoiding ~300 tokens of duplication.
     """
     parts: list[str] = []
 
@@ -157,17 +178,21 @@ def build_story_composition_prompt(
 
     if analysis.get("epic_description"):
         parts.append("## Epic description")
-        parts.append(analysis["epic_description"])
+        parts.append("---BEGIN EPIC DESCRIPTION---")
+        parts.append(strip_jira_markup(analysis["epic_description"]))
+        parts.append("---END EPIC DESCRIPTION---")
         parts.append("")
 
     children = analysis.get("child_issues", [])
     if children:
         parts.append(f"## Child issues ({len(children)})")
+        parts.append("---BEGIN CHILD ISSUES---")
         for c in children:
             parts.append(f"- **{c['key']}**: {c['summary']}")
             if c.get("description"):
-                desc_short = c["description"][:300]
+                desc_short = strip_jira_markup(c["description"])[:300]
                 parts.append(f"  {desc_short}")
+        parts.append("---END CHILD ISSUES---")
         parts.append("")
 
     keywords = analysis.get("domain_keywords", [])
@@ -186,10 +211,13 @@ def build_story_composition_prompt(
 
     proposals = analysis.get("proposals", {})
     if proposals:
+        trimmed = _trim_existing_items(proposals)
         parts.append("## Analysis findings (existing + proposed)")
         parts.append("")
         parts.append("```json")
-        parts.append(_capped_json(proposals, _PROPOSALS_MAX_CHARS, label="proposals"))
+        parts.append(_capped_json(
+            trimmed, _PROPOSALS_MAX_CHARS, label="proposals",
+        ))
         parts.append("```")
         parts.append("")
 
@@ -204,7 +232,9 @@ def build_story_composition_prompt(
     if telemetry:
         parts.append("## Telemetry candidates (not on CMO allowlist)")
         parts.append("```json")
-        parts.append(_capped_json(telemetry, _TELEMETRY_MAX_CHARS, label="telemetry items"))
+        parts.append(_capped_json(
+            telemetry, _TELEMETRY_MAX_CHARS, label="telemetry items",
+        ))
         parts.append("```")
         parts.append("")
 
@@ -212,56 +242,30 @@ def build_story_composition_prompt(
         parts.append("## Category guidance")
         parts.append("")
         for cat_name, guidance in category_guidance.items():
-            parts.append(f"### {cat_name}")
-            if guidance.get("trigger"):
-                parts.append(
-                    f"- **When to create:** {guidance['trigger']}"
-                )
-            if guidance.get("story_prefix"):
-                parts.append(
-                    f"- **Title prefix:** {guidance['story_prefix']}"
-                )
-            criteria = guidance.get("acceptance_criteria", [])
-            if criteria:
-                parts.append("- **Acceptance criteria:**")
-                for ac in criteria:
-                    parts.append(f"  - {ac}")
-            parts.append("")
+            trigger = guidance.get("trigger", "")
+            prefix = guidance.get("story_prefix", "")
+            line = f"- **{cat_name}**: "
+            if trigger:
+                line += trigger
+            if prefix:
+                line += f" (prefix: {prefix})"
+            parts.append(line)
+        parts.append("")
 
     if story_points_guidance:
-        parts.append("## Story point estimation")
-        parts.append("")
-        parts.append(story_points_guidance)
+        parts.append(f"## Story points: {story_points_guidance}")
         parts.append("")
 
-    parts.append("## Instructions")
-    parts.append("")
     parts.append(
-        "For each observability gap listed above, compose a Jira story "
-        "with a clear summary and a detailed description. The description "
-        "must explain *why* the proposed change matters for this specific "
-        "feature, reference existing artifacts where relevant, and include "
-        "acceptance criteria as a markdown checklist."
+        "Compose one story per gap. For docs/QE, reference child "
+        "story keys. Return JSON."
     )
-    parts.append("")
-    parts.append(
-        "If 'docs' is an enabled category and this epic changes "
-        "user-facing behavior, compose a docs story. If 'qe' is enabled, "
-        "review every child story listed above and compose QE stories "
-        "that cover all testable changes. Reference the specific child "
-        "story keys (e.g. CNV-xxxxx) that each QE story covers. Only "
-        "create docs/QE stories when genuinely warranted."
-    )
-    parts.append("")
-    parts.append(
-        "Estimate story points for every story using the Fibonacci scale "
-        "(1, 2, 3, 5, 8, 13)."
-    )
-    parts.append("")
-    parts.append("Return JSON matching this schema:")
-    parts.append("```json")
-    parts.append(json.dumps(STORY_JSON_SCHEMA, indent=2))
-    parts.append("```")
+
+    if include_schema:
+        parts.append("")
+        parts.append("```json")
+        parts.append(json.dumps(STORY_JSON_SCHEMA, indent=2))
+        parts.append("```")
 
     return "\n".join(parts)
 
@@ -293,6 +297,7 @@ def build_sp_estimation_prompt(
     epic_description: str,
     stories: list[dict[str, str]],
     story_points_guidance: str = "",
+    include_schema: bool = False,
 ) -> str:
     """Build a prompt asking the LLM to estimate SP for unsized stories.
 
@@ -301,13 +306,17 @@ def build_sp_estimation_prompt(
     - epic_description: the parent epic's description
     - stories: list of dicts with keys: key, summary, description
     - story_points_guidance: free-text sizing guidance from config
+    - include_schema: embed the JSON schema in the prompt body.
+      Set False (default) when the caller passes ``response_format``.
     """
     parts: list[str] = []
 
     parts.append(f"# Epic context: {epic_summary}")
     parts.append("")
     if epic_description:
-        parts.append(epic_description[:1000])
+        parts.append("---BEGIN EPIC DESCRIPTION---")
+        parts.append(strip_jira_markup(epic_description)[:1000])
+        parts.append("---END EPIC DESCRIPTION---")
         parts.append("")
 
     parts.append(f"## Stories to estimate ({len(stories)})")
@@ -315,19 +324,20 @@ def build_sp_estimation_prompt(
     for s in stories:
         parts.append(f"### {s['key']}: {s['summary']}")
         if s.get("description"):
-            desc = s["description"][:500]
+            desc = strip_jira_markup(s["description"])[:500]
             parts.append(desc)
         parts.append("")
 
     if story_points_guidance:
-        parts.append("## Sizing guidance")
-        parts.append("")
-        parts.append(story_points_guidance)
+        parts.append(f"## Sizing: {story_points_guidance}")
         parts.append("")
 
-    parts.append("Return JSON matching this schema:")
-    parts.append("```json")
-    parts.append(json.dumps(SP_ESTIMATION_JSON_SCHEMA, indent=2))
-    parts.append("```")
+    parts.append("Return JSON.")
+
+    if include_schema:
+        parts.append("")
+        parts.append("```json")
+        parts.append(json.dumps(SP_ESTIMATION_JSON_SCHEMA, indent=2))
+        parts.append("```")
 
     return "\n".join(parts)

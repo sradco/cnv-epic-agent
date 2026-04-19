@@ -94,6 +94,7 @@ async def compose_observability_stories(epic_key: str) -> str:
         story_points_guidance=(
             sp_cfg.get("guidance", "") if sp_cfg.get("enabled") else ""
         ),
+        include_schema=True,
     )
     return f"{SYSTEM_PROMPT}\n\n---\n\n{prompt_text}"
 

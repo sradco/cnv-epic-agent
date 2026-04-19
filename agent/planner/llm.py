@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
 _INITIAL_BACKOFF_S = 2.0
-_DEFAULT_TIMEOUT_S = 120
+_DEFAULT_TIMEOUT_S = 600
+
+
+class LLMError(RuntimeError):
+    """Raised when the LLM call fails after all retries."""
 
 
 def complete(
@@ -29,8 +33,9 @@ def complete(
     """Call an LLM via litellm and return the response text.
 
     Retries up to 3 times with exponential backoff on transient
-    errors (network, rate-limit, auth).  Returns empty string when
-    all retries are exhausted so callers can degrade gracefully.
+    errors (network, rate-limit, auth).  Raises ``LLMError`` when
+    all retries are exhausted so callers can distinguish failure
+    from "no stories needed."
 
     Parameters:
     - model: litellm model string, e.g. "gpt-4o", "anthropic/claude-sonnet-4-20250514"
@@ -69,7 +74,12 @@ def complete(
                     getattr(usage, "completion_tokens", 0),
                     getattr(usage, "total_tokens", 0),
                 )
-            return response.choices[0].message.content or ""
+            content = response.choices[0].message.content or ""
+            if not content.strip():
+                raise LLMError("LLM returned empty response")
+            return content
+        except LLMError:
+            raise
         except Exception as exc:
             last_err = exc
             if attempt < _MAX_RETRIES - 1:
@@ -85,7 +95,9 @@ def complete(
                     _MAX_RETRIES, exc,
                 )
 
-    return ""
+    raise LLMError(
+        f"LLM call failed after {_MAX_RETRIES} attempts: {last_err}"
+    )
 
 
 def parse_json_response(text: str) -> dict[str, Any]:

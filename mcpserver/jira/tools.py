@@ -180,6 +180,7 @@ def register_jira_tools(server: Any) -> None:
             find_existing_obs_stories,
             find_or_create_obs_epic,
             create_obs_story,
+            is_duplicate_story,
         )
 
         cfg = load_config()
@@ -228,25 +229,41 @@ def register_jira_tools(server: Any) -> None:
         existing = find_existing_obs_stories(
             client, cfg, obs_epic["key"], epic_key,
         )
-        existing_summaries = {e["summary"].lower() for e in existing}
+        for child in children:
+            existing.append({
+                "key": child.key,
+                "summary": child.summary,
+                "labels": [],
+                "description": child.description,
+            })
 
         created: list[str] = []
         skipped: list[str] = []
         would_create: list[dict[str, str]] = []
 
         for payload in payloads:
-            if payload["summary"].lower() in existing_summaries:
+            if is_duplicate_story(
+                payload["summary"], epic_key, existing,
+            ):
                 skipped.append(payload["summary"])
                 continue
 
             if dry_run:
                 would_create.append(payload)
             else:
-                issue = create_obs_story(
+                issue, warnings = create_obs_story(
                     client, cfg, obs_epic["key"], epic_key,
                     payload["summary"], payload["description"],
+                    story_points=payload.get("story_points"),
+                    category=payload.get("category", ""),
                 )
-                created.append(f"{issue.key}: {payload['summary']}")
+                warn_tag = (
+                    f" ⚠ {warnings.warning_text()}"
+                    if warnings.has_warnings else ""
+                )
+                created.append(
+                    f"{issue.key}: {payload['summary']}{warn_tag}"
+                )
 
         lines: list[str] = []
         if dry_run:
@@ -368,6 +385,7 @@ def register_jira_tools(server: Any) -> None:
         version: str,
         summary: str,
         description: str,
+        category: str = "",
         dry_run: bool = True,
     ) -> str:
         """Create a single observability story with client-provided content.
@@ -387,6 +405,7 @@ def register_jira_tools(server: Any) -> None:
         - version: CNV version (e.g. "4.18")
         - summary: story title (composed by the AI client)
         - description: full story body in markdown
+        - category: story category (e.g. "metrics", "alerts")
         - dry_run: if True (default), preview; if False, create on Jira
         """
         if not version:
@@ -403,9 +422,11 @@ def register_jira_tools(server: Any) -> None:
 
         from mcpserver.jira.client import (
             get_jira_client,
+            fetch_child_issues,
             find_existing_obs_stories,
             find_or_create_obs_epic,
             create_obs_story,
+            is_duplicate_story,
         )
 
         cfg = load_config()
@@ -418,9 +439,19 @@ def register_jira_tools(server: Any) -> None:
         existing = find_existing_obs_stories(
             client, cfg, obs_epic["key"], epic_key,
         )
-        existing_summaries = {e["summary"].lower() for e in existing}
+        for child in fetch_child_issues(client, cfg, epic_key):
+            existing.append({
+                "key": child.key,
+                "summary": str(
+                    getattr(child.fields, "summary", "") or ""
+                ),
+                "labels": [],
+                "description": str(
+                    getattr(child.fields, "description", "") or ""
+                ),
+            })
 
-        if summary.lower() in existing_summaries:
+        if is_duplicate_story(summary, epic_key, existing):
             return (
                 "Story already exists: a story with summary matching "
                 f'"{summary}" was found under {obs_epic["key"]}. '
@@ -443,12 +474,16 @@ def register_jira_tools(server: Any) -> None:
             ]
             return "\n".join(lines)
 
-        issue = create_obs_story(
+        issue, warnings = create_obs_story(
             client, cfg, obs_epic["key"], epic_key,
             summary, description,
+            category=category,
         )
+        warn_msg = ""
+        if warnings.has_warnings:
+            warn_msg = f"\n\n⚠ {warnings.warning_text()}"
         return (
             f"Created **{issue.key}**: {summary}\n\n"
             f"Under observability epic {obs_epic['key']}. "
-            f"Linked to {epic_key}."
+            f"Linked to {epic_key}.{warn_msg}"
         )

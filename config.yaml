@@ -11,6 +11,7 @@ creation:
   epic_label: "cnv-observability"
   story_label: "epic-agent-generated"
   epic_summary_format: "[Observability] CNV {version} — Auto-generated observability stories"
+  story_points_field: "customfield_10028"
 
 discovery:
   repos:
@@ -73,6 +74,10 @@ analysis:
       - "changelog"
       - "comment update"
       - "rename variable"
+      - "release checklist"
+      - "z-stream release"
+      - "release tracker"
+      - "release cadence"
 
   coverage_keywords:
     metrics:
@@ -247,7 +252,7 @@ observability_patterns:
 
 agent:
   default_model: "gpt-4o"
-  max_stories_per_run: 50
+  max_stories_per_run: 200
   temperature: 0.2
   enabled_categories:
     - metrics
@@ -276,7 +281,25 @@ agent:
   story_points:
     enabled: true
     estimate_existing: true
-    guidance: "Estimate based on implementation complexity: 1=trivial, 2=small, 3=medium, 5=large, 8=very large, 13=epic-sized. Do NOT assign story points to bugs — only to stories."
+    guidance: >-
+      Estimate based on implementation complexity: 1=trivial,
+      2=small, 3=medium, 5=large, 8=very large, 13=epic-sized.
+      Do NOT assign story points to bugs — only to stories.
+      Domain-specific sizing hints for KubeVirt/CNV:
+      - VEP (Virtio Enhancement Proposal) review/merge: 5-8
+        (extended design discussions, multiple revision rounds,
+        stakeholder alignment).
+      - Design doc / spike: 3-5 (research + writeup + review).
+      - New Prometheus metric (GaugeVec/Counter): 3-5 per metric
+        (code + tests + documentation + recording rules).
+      - gRPC / virtio-serial channel work: 5-8
+        (cross-component, protocol design, integration tests).
+      - Repo migration / move: 3-5
+        (CI reconfiguration, import paths, downstream updates).
+      - User documentation: 2-3 (not trivial — requires
+        technical accuracy review and screenshots/examples).
+      Stories with no description should be estimated
+      conservatively (assume medium complexity, not trivial).
 
 subtask_templates:
   summary_format: "[Observability][{category}] Add {category_label} for {epic_key}: {epic_summary_short}"

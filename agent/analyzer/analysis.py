@@ -2,43 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
-
-@dataclass
-class IssueDoc:
-    """Lightweight representation of a Jira issue for text analysis."""
-
-    key: str
-    summary: str
-    description: str
-    issue_type: str = ""
-
-    @classmethod
-    def from_jira(cls, issue: Any) -> "IssueDoc":
-        fields = issue.fields if hasattr(issue, "fields") else issue
-        return cls(
-            key=str(getattr(issue, "key", "") or issue.get("key", "")),
-            summary=str(getattr(fields, "summary", "") or ""),
-            description=str(getattr(fields, "description", "") or ""),
-            issue_type=str(
-                getattr(getattr(fields, "issuetype", None), "name", "")
-                or ""
-            ),
-        )
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "IssueDoc":
-        return cls(
-            key=str(payload.get("key", "")),
-            summary=str(payload.get("summary", "")),
-            description=str(payload.get("description", "")),
-            issue_type=str(payload.get("issue_type", "")),
-        )
-
-    def full_text(self) -> str:
-        return f"{self.summary}\n{self.description}".lower()
+from schemas.issue_doc import IssueDoc  # noqa: F401 — re-export
 
 
 def _unique(items: list[str]) -> list[str]:
@@ -343,7 +309,10 @@ def _propose_new_items(
             if not raw_hint:
                 continue
 
-            hint = _fill_domain(raw_hint, domain_label)
+            is_identifier = hint_key == "name_hint"
+            hint = _fill_domain(
+                raw_hint, domain_label, snake_case=is_identifier,
+            )
             if hint.lower() in seen_hints:
                 continue
             seen_hints.add(hint.lower())
@@ -387,9 +356,19 @@ def _derive_domain_label(keywords: list[str], epic_summary: str) -> str:
     return " ".join(words[:3]) if words else "feature"
 
 
-def _fill_domain(template: str, domain_label: str) -> str:
-    """Substitute {domain}, {Domain}, {DomainCamel} in a template."""
-    result = template.replace("{domain}", domain_label)
+def _fill_domain(
+    template: str,
+    domain_label: str,
+    snake_case: bool = False,
+) -> str:
+    """Substitute {domain}, {Domain}, {DomainCamel} in a template.
+
+    When *snake_case* is True, spaces in the domain label are replaced
+    with underscores for ``{domain}`` (metric/alert name contexts).
+    ``{Domain}`` and ``{DomainCamel}`` are always space-free by nature.
+    """
+    domain_sub = domain_label.replace(" ", "_") if snake_case else domain_label
+    result = template.replace("{domain}", domain_sub)
     result = result.replace("{Domain}", domain_label.title())
     camel = "".join(w.capitalize() for w in domain_label.split())
     result = result.replace("{DomainCamel}", camel)

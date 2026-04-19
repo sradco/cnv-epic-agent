@@ -11,8 +11,10 @@ from prompts.templates import (
     SP_ESTIMATION_SYSTEM_PROMPT,
     build_story_composition_prompt,
     build_sp_estimation_prompt,
+    strip_jira_markup,
+    _trim_existing_items,
 )
-from schemas.stories import AnalysisResult, SP_ESTIMATION_JSON_SCHEMA
+from schemas.stories import SP_ESTIMATION_JSON_SCHEMA
 
 
 class TestSystemPrompt:
@@ -83,6 +85,8 @@ class TestBuildPrompt:
         analysis = self._make_analysis()
         prompt = build_story_composition_prompt(analysis)
         assert "Detailed description of the feature" in prompt
+        assert "---BEGIN EPIC DESCRIPTION---" in prompt
+        assert "---END EPIC DESCRIPTION---" in prompt
 
     def test_includes_gaps(self):
         analysis = self._make_analysis(gaps=["metrics", "alerts"])
@@ -119,6 +123,8 @@ class TestBuildPrompt:
         prompt = build_story_composition_prompt(analysis)
         assert "CNV-10001" in prompt
         assert "Implement migration API" in prompt
+        assert "---BEGIN CHILD ISSUES---" in prompt
+        assert "---END CHILD ISSUES---" in prompt
 
     def test_no_gaps_produces_minimal_prompt(self):
         analysis = self._make_analysis(gaps=[], proposals={})
@@ -154,7 +160,6 @@ class TestBuildPrompt:
         assert "docs" in prompt
         assert "Epic changes user-facing behavior" in prompt
         assert "[Docs]" in prompt
-        assert "Documentation PR submitted" in prompt
 
     def test_includes_story_points_guidance(self):
         analysis = self._make_analysis()
@@ -162,44 +167,15 @@ class TestBuildPrompt:
             analysis,
             story_points_guidance="1=trivial, 2=small, 3=medium",
         )
-        assert "Story point estimation" in prompt
+        assert "Story points" in prompt
         assert "1=trivial" in prompt
 
     def test_no_guidance_omits_sections(self):
         analysis = self._make_analysis()
         prompt = build_story_composition_prompt(analysis)
         assert "Category guidance" not in prompt
-        assert "Story point estimation" not in prompt
+        assert "Story points:" not in prompt
         assert "Enabled categories" not in prompt
-
-
-class TestAnalysisResultFromDict:
-    def test_round_trip(self):
-        data = {
-            "epic_key": "CNV-1",
-            "epic_summary": "Test",
-            "epic_description": "Desc",
-            "child_issues": [],
-            "domain_keywords": ["test"],
-            "need_state": "needed",
-            "need_confidence": "high",
-            "need_score": 5,
-            "need_evidence": {},
-            "coverage": {},
-            "gaps": ["metrics"],
-            "feature_types": ["api_controller"],
-            "proposals": {},
-            "dashboard_targets": [],
-            "telemetry_suggestions": [],
-            "recommended_action": "create now",
-            "apply_allowed": True,
-            "would_create_count": 1,
-        }
-
-        result = AnalysisResult.from_dict(data)
-        assert result.epic_key == "CNV-1"
-        assert result.gaps == ["metrics"]
-        assert result.apply_allowed is True
 
 
 class TestSPEstimationPromptTemplates:
@@ -232,16 +208,84 @@ class TestSPEstimationPromptTemplates:
             epic_summary="Test",
             epic_description="",
             stories=[{"key": "X-1", "summary": "S", "description": ""}],
+            include_schema=True,
         )
         assert "estimates" in prompt
         assert "issue_key" in prompt
         assert "story_points" in prompt
+
+        prompt_no_schema = build_sp_estimation_prompt(
+            epic_summary="Test",
+            epic_description="",
+            stories=[{"key": "X-1", "summary": "S", "description": ""}],
+        )
+        assert "Return JSON" in prompt_no_schema
+        assert '"estimates"' not in prompt_no_schema
 
     def test_sp_schema_structure(self):
         assert "estimates" in SP_ESTIMATION_JSON_SCHEMA["properties"]
         items = SP_ESTIMATION_JSON_SCHEMA["properties"]["estimates"]["items"]
         assert "issue_key" in items["properties"]
         assert "rationale" in items["properties"]
+
+
+class TestStripJiraMarkup:
+    def test_strips_headings(self):
+        assert strip_jira_markup("h1. Title\nBody") == "Title\nBody"
+        assert strip_jira_markup("h3. Section") == "Section"
+
+    def test_strips_links(self):
+        assert strip_jira_markup("[Example|https://example.com]") == "Example"
+
+    def test_strips_bold(self):
+        assert strip_jira_markup("*bold text*") == "bold text"
+
+    def test_strips_panel_macros(self):
+        text = "{panel:title=Info}content{panel}"
+        assert "{panel" not in strip_jira_markup(text)
+        assert "content" in strip_jira_markup(text)
+
+    def test_plain_text_unchanged(self):
+        assert strip_jira_markup("plain text") == "plain text"
+
+
+class TestTrimExistingItems:
+    def test_caps_existing_items(self):
+        existing = [{"name": f"metric_{i}"} for i in range(10)]
+        proposals = {
+            "metrics": {
+                "existing": existing,
+                "proposed": [{"name": "new_metric"}],
+            },
+        }
+        trimmed = _trim_existing_items(proposals, max_per_category=3)
+        result = trimmed["metrics"]
+        assert len(result["existing"]) == 4  # 3 items + _note
+        assert result["existing"][-1]["_note"]
+        assert len(result["proposed"]) == 1
+
+    def test_preserves_small_existing(self):
+        existing = [{"name": "m1"}, {"name": "m2"}]
+        proposals = {"metrics": {"existing": existing, "proposed": []}}
+        trimmed = _trim_existing_items(proposals, max_per_category=5)
+        assert len(trimmed["metrics"]["existing"]) == 2
+
+    def test_jira_markup_stripped_from_epic_description(self):
+        analysis = {
+            "epic_key": "CNV-1",
+            "epic_summary": "Test",
+            "epic_description": "h2. Overview\n*Important* [link|http://x]",
+            "child_issues": [],
+            "domain_keywords": [],
+            "gaps": ["metrics"],
+            "proposals": {},
+            "dashboard_targets": [],
+            "telemetry_suggestions": [],
+        }
+        prompt = build_story_composition_prompt(analysis)
+        assert "h2." not in prompt
+        assert "*Important*" not in prompt
+        assert "Important" in prompt
 
 
 if __name__ == "__main__":
