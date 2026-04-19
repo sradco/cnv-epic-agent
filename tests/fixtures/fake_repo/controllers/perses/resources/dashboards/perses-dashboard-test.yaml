@@ -1,0 +1,44 @@
+apiVersion: perses.dev/v1alpha1
+kind: PersesDashboard
+metadata:
+  name: test-dashboard
+spec:
+  display:
+    name: Test Node Overview
+  panels:
+    MemoryPressure:
+      kind: Panel
+      spec:
+        display:
+          name: Memory Pressure
+        plugin:
+          kind: TimeSeriesChart
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(node_pressure_memory_waiting_seconds_total{instance=~"$node"}[1m]))
+                  seriesNameFormat: Waiting
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(node_pressure_memory_stalled_seconds_total{instance=~"$node"}[1m]))
+                  seriesNameFormat: Stalled
+    CPUUsage:
+      kind: Panel
+      spec:
+        display:
+          name: CPU Usage Rate
+        plugin:
+          kind: TimeSeriesChart
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(node_cpu_seconds_total{mode!="idle"}[5m]))

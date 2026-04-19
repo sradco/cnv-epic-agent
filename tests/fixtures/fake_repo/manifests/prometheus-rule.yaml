@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: cnv-alerts
+spec:
+  groups:
+  - name: cnv.rules
+    rules:
+    - alert: CDIStorageProfilesIncomplete
+      expr: cdh_storage_profile_info{complete="false"} == 1
+      for: 5m
+      labels:
+        severity: info
+      annotations:
+        summary: "Incomplete StorageProfile detected."
+    - record: :node_memory_MemAvailable_bytes:sum
+      expr: sum(node_memory_MemAvailable_bytes)

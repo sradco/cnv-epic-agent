@@ -1,0 +1,437 @@
+jira:
+  url: "https://redhat.atlassian.net"
+  default_project: "CNV"
+  default_since_days: 30
+  jql_template: "project = {project} AND type = Epic AND created >= -{since_days}d"
+  child_issues_jql_template: "project = {project} AND \"Epic Link\" = {epic_key}"
+
+creation:
+  project: "CNV"
+  component: "CNV Install, Upgrade and Operators"
+  epic_label: "cnv-observability"
+  story_label: "epic-agent-generated"
+  epic_summary_format: "[Observability] CNV {version} — Auto-generated observability stories"
+
+discovery:
+  repos:
+    - "https://github.com/kubevirt/application-aware-quota"
+    - "https://github.com/kubevirt/cluster-network-addons-operator"
+    - "https://github.com/kubevirt/containerized-data-importer"
+    - "https://github.com/kubevirt/hostpath-provisioner"
+    - "https://github.com/kubevirt/hostpath-provisioner-operator"
+    - "https://github.com/kubevirt/hyperconverged-cluster-operator"
+    - "https://github.com/kubevirt/kubevirt"
+    - "https://github.com/kubevirt/ssp-operator"
+    - "https://github.com/stolostron/multicluster-observability-addon"
+
+telemetry:
+  cmo_allowlist_url: "https://raw.githubusercontent.com/openshift/cluster-monitoring-operator/master/manifests/0000_50_cluster-monitoring-operator_04-config.yaml"
+
+analysis:
+  need_assessment:
+    needed_threshold: 2
+    not_needed_threshold: -1
+    needed_terms:
+      - "controller"
+      - "operator"
+      - "reconciler"
+      - "api endpoint"
+      - "rest api"
+      - "webhook"
+      - "migration"
+      - "live migration"
+      - "networking"
+      - "storage"
+      - "scale"
+      - "performance"
+      - "latency"
+      - "throughput"
+      - "reliability"
+      - "availability"
+      - "slo"
+      - "sli"
+      - "health check"
+      - "failover"
+      - "retry"
+      - "timeout"
+      - "error handling"
+      - "data path"
+      - "hotplug"
+      - "virtio"
+      - "vmi"
+      - "virtual machine"
+      - "cdi"
+      - "data volume"
+    not_needed_terms:
+      - "documentation only"
+      - "docs update"
+      - "copy change"
+      - "text change"
+      - "ui label"
+      - "typo"
+      - "readme"
+      - "changelog"
+      - "comment update"
+      - "rename variable"
+
+  coverage_keywords:
+    metrics:
+      - "metric"
+      - "prometheus"
+      - "exporter"
+      - "sli"
+      - "recording rule"
+      - "counter"
+      - "gauge"
+      - "histogram"
+      - "observability metric"
+    alerts:
+      - "alert"
+      - "prometheusrule"
+      - "alerting"
+      - "slo"
+      - "alerting rule"
+      - "runbook"
+      - "alertmanager"
+    dashboards:
+      - "dashboard"
+      - "grafana"
+      - "perses"
+      - "console"
+      - "monitoring view"
+      - "monitoring panel"
+
+proposals:
+  feature_type_signals:
+    api_controller:
+      - "controller"
+      - "operator"
+      - "reconciler"
+      - "api endpoint"
+      - "rest api"
+      - "webhook"
+    performance_scale:
+      - "scale"
+      - "performance"
+      - "latency"
+      - "throughput"
+      - "benchmark"
+      - "capacity"
+    availability_reliability:
+      - "reliability"
+      - "availability"
+      - "failover"
+      - "health check"
+      - "slo"
+      - "uptime"
+    data_path:
+      - "storage"
+      - "networking"
+      - "data path"
+      - "migration"
+      - "live migration"
+      - "data volume"
+      - "cdi"
+
+
+observability_patterns:
+  migration:
+    match_terms: ["migration", "live migration", "migrate"]
+    metrics:
+      - name_hint: "kubevirt_vmi_{domain}_duration_seconds"
+        type: histogram
+        rationale: "Track how long {domain} operations take so operators can set SLOs and detect performance regressions."
+        user_action: "Alert if p99 exceeds baseline. Dashboard panel showing duration percentiles over time."
+      - name_hint: "kubevirt_vmi_{domain}_errors_total"
+        type: counter
+        rationale: "Count {domain} failures so operators can compute error rates and detect reliability regressions."
+        user_action: "Alert if error rate exceeds threshold. Track in dashboard alongside success rate."
+      - name_hint: "kubevirt_vmi_{domain}_in_progress_count"
+        type: gauge
+        rationale: "Track concurrent {domain} operations so operators can detect queuing or resource exhaustion."
+        user_action: "Dashboard panel showing current concurrency. Alert if stuck above expected capacity."
+    alerts:
+      - name_hint: "{DomainCamel}HighErrorRate"
+        rationale: "Fire when the error rate for {domain} exceeds a threshold, indicating a systemic problem."
+        user_action: "Operator investigates logs, checks recent config or infra changes, may need to drain or restart affected nodes."
+      - name_hint: "{DomainCamel}Stuck"
+        rationale: "Fire when a {domain} operation exceeds its expected maximum duration."
+        user_action: "Operator checks if the operation is truly stuck or just slow; may need manual intervention or cancellation."
+    dashboards:
+      - panel_hint: "{Domain} Operations Overview"
+        rationale: "Single pane showing success/failure rates, duration percentiles, and in-progress count for {domain}."
+        user_action: "Day-2 operational overview; first place to look during {domain}-related incidents."
+  storage:
+    match_terms: ["storage", "data volume", "disk", "cdi", "pvc", "lun"]
+    metrics:
+      - name_hint: "kubevirt_{domain}_io_duration_seconds"
+        type: histogram
+        rationale: "Track I/O latency for {domain} operations so operators can identify slow storage paths."
+        user_action: "Alert on high p99 latency. Dashboard panel comparing latency across storage backends."
+      - name_hint: "kubevirt_{domain}_io_errors_total"
+        type: counter
+        rationale: "Count I/O errors to detect failing storage devices or misconfigured backends."
+        user_action: "Alert if error rate spikes. Correlate with storage provider health dashboards."
+      - name_hint: "kubevirt_{domain}_capacity_bytes"
+        type: gauge
+        rationale: "Track available capacity so operators can plan provisioning before exhaustion."
+        user_action: "Alert when capacity drops below threshold. Dashboard panel showing utilization trend."
+    alerts:
+      - name_hint: "{DomainCamel}IOHighLatency"
+        rationale: "Fire when I/O latency for {domain} exceeds acceptable bounds, degrading VM performance."
+        user_action: "Operator checks storage backend health, considers migrating workloads to healthier nodes."
+      - name_hint: "{DomainCamel}CapacityLow"
+        rationale: "Fire when available {domain} capacity drops below safe threshold."
+        user_action: "Operator provisions additional storage or evicts unused volumes."
+    dashboards:
+      - panel_hint: "{Domain} I/O Performance"
+        rationale: "Visualize I/O latency, throughput, and error rates for {domain}."
+        user_action: "Identify storage bottlenecks during troubleshooting."
+  networking:
+    match_terms: ["networking", "network", "infiniband", "multicast", "passt", "vnic"]
+    metrics:
+      - name_hint: "kubevirt_vmi_{domain}_traffic_bytes_total"
+        type: counter
+        rationale: "Track network traffic volume for {domain} to detect anomalies and capacity issues."
+        user_action: "Dashboard panel showing traffic trends. Alert on unexpected drops or spikes."
+      - name_hint: "kubevirt_vmi_{domain}_errors_total"
+        type: counter
+        rationale: "Count {domain} errors (packet drops, connection failures) to detect degraded paths."
+        user_action: "Alert if error rate exceeds threshold. Correlate with node-level network metrics."
+    alerts:
+      - name_hint: "{DomainCamel}Degraded"
+        rationale: "Fire when {domain} error rate indicates degraded connectivity affecting VMs."
+        user_action: "Operator checks node network health, OVN/OVS status, and physical link state."
+    dashboards:
+      - panel_hint: "{Domain} Traffic Overview"
+        rationale: "Visualize traffic rates, error rates, and connection counts for {domain}."
+        user_action: "First stop for network troubleshooting; correlate with VM-level symptoms."
+  api_controller:
+    match_terms: ["controller", "operator", "reconciler", "webhook", "api"]
+    metrics:
+      - name_hint: "kubevirt_{domain}_reconcile_duration_seconds"
+        type: histogram
+        rationale: "Track reconciliation latency so operators can detect slow-loop regressions."
+        user_action: "Alert if p99 exceeds SLO. Dashboard panel showing reconcile duration over time."
+      - name_hint: "kubevirt_{domain}_reconcile_errors_total"
+        type: counter
+        rationale: "Count reconciliation failures to detect persistent error conditions."
+        user_action: "Alert if error rate exceeds threshold. Check operator logs for root cause."
+    alerts:
+      - name_hint: "{DomainCamel}ReconcileFailures"
+        rationale: "Fire when {domain} reconciliation error rate is elevated, indicating the operator cannot maintain desired state."
+        user_action: "Operator checks logs, verifies CRD state, and may need to restart the operator pod."
+    dashboards:
+      - panel_hint: "{Domain} Operator Health"
+        rationale: "Visualize reconcile rate, error rate, and queue depth for {domain}."
+        user_action: "Operational dashboard for operator health; detect stuck reconcile loops."
+  performance:
+    match_terms: ["performance", "latency", "throughput", "swap", "memory", "cpu"]
+    metrics:
+      - name_hint: "kubevirt_vmi_{domain}_usage"
+        type: gauge
+        rationale: "Track {domain} utilization per VM so operators can detect resource pressure."
+        user_action: "Alert when utilization exceeds safe threshold. Dashboard panel showing per-VM breakdown."
+      - name_hint: "kubevirt_vmi_{domain}_saturation_ratio"
+        type: gauge
+        rationale: "Track how close VMs are to {domain} capacity limits."
+        user_action: "Alert on high saturation. Dashboard panel showing nodes/VMs at risk of exhaustion."
+    alerts:
+      - name_hint: "{DomainCamel}Pressure"
+        rationale: "Fire when {domain} utilization indicates resource pressure that may degrade VM performance."
+        user_action: "Operator rebalances workloads, adjusts resource requests, or scales infrastructure."
+    dashboards:
+      - panel_hint: "{Domain} Utilization Overview"
+        rationale: "Visualize {domain} utilization across nodes and VMs to identify hotspots."
+        user_action: "Capacity planning and incident investigation for {domain}-related performance issues."
+
+agent:
+  default_model: "gpt-4o"
+  max_stories_per_run: 50
+  temperature: 0.2
+  enabled_categories:
+    - metrics
+    - alerts
+    - dashboards
+    - telemetry
+    - docs
+    - qe
+  category_guidance:
+    docs:
+      trigger: "Epic changes user-facing behavior, APIs, CLI, or UI"
+      story_prefix: "[Docs]"
+      acceptance_criteria:
+        - "Documentation PR submitted to the appropriate repo"
+        - "Release notes entry added if user-visible"
+        - "API reference updated if endpoints changed"
+    qe:
+      trigger: "Epic has child stories that introduce runtime changes, new APIs, or user-facing behavior"
+      story_prefix: "[QE]"
+      acceptance_criteria:
+        - "Test plan covers all child stories with testable changes"
+        - "Test plan reviewed and approved by QE"
+        - "Automated tests added for happy path"
+        - "Edge cases and failure modes identified"
+        - "Upgrade/rollback scenarios covered if applicable"
+  story_points:
+    enabled: true
+    estimate_existing: true
+    guidance: "Estimate based on implementation complexity: 1=trivial, 2=small, 3=medium, 5=large, 8=very large, 13=epic-sized. Do NOT assign story points to bugs — only to stories."
+
+subtask_templates:
+  summary_format: "[Observability][{category}] Add {category_label} for {epic_key}: {epic_summary_short}"
+  categories:
+    metrics:
+      label: "Prometheus metrics"
+      description_template: |
+        ## Why this is needed
+
+        The epic {epic_key} ("{epic_summary}") introduces runtime behavior changes
+        that require Prometheus metrics for operational visibility.
+
+        {why_section}
+
+        ## Scope from epic/stories
+
+        {scope_section}
+
+        ## Existing related metrics (reference)
+
+        These metrics already exist in the codebase. Review whether they provide
+        sufficient coverage for the new behavior:
+
+        {existing_items}
+
+        ## Proposed new metrics
+
+        These metrics do not yet exist and should be considered for this feature:
+
+        {proposed_items}
+
+        ## Acceptance criteria
+
+        - [ ] Metrics are registered and exposed on /metrics endpoint
+        - [ ] Metrics have appropriate labels (no unbounded cardinality)
+        - [ ] Recording rules added if needed for dashboards/alerts
+        - [ ] Unit tests cover metric emission
+
+        ## Out of scope
+
+        - Alerting rules (separate story)
+        - Dashboard panels (separate story)
+    alerts:
+      label: "alerting rules"
+      description_template: |
+        ## Why this is needed
+
+        The epic {epic_key} ("{epic_summary}") introduces functionality where
+        failures or degradation should trigger alerts to operators.
+
+        {why_section}
+
+        ## Scope from epic/stories
+
+        {scope_section}
+
+        ## Existing related alerts (reference)
+
+        These alerting rules already exist. Review whether they cover the new
+        failure modes introduced by this epic:
+
+        {existing_items}
+
+        ## Proposed new alerting rules
+
+        These alerts do not yet exist and should be considered:
+
+        {proposed_items}
+
+        ## Acceptance criteria
+
+        - [ ] PrometheusRule CR created with appropriate severity labels
+        - [ ] Each alert has a runbook_url annotation
+        - [ ] Alert expressions tested against sample data
+        - [ ] Alerts follow naming conventions (CamelCase, component prefix)
+
+        ## Out of scope
+
+        - Metrics implementation (separate story)
+        - Dashboard panels (separate story)
+    dashboards:
+      label: "dashboard"
+      description_template: |
+        ## Why this is needed
+
+        The epic {epic_key} ("{epic_summary}") adds functionality that
+        operators need to visualize for day-2 operations.
+
+        {why_section}
+
+        ## Scope from epic/stories
+
+        {scope_section}
+
+        ## Existing related panels (reference)
+
+        These panels already exist. Check if they reflect the new functionality:
+
+        {existing_items}
+
+        ## Proposed new dashboard panels
+
+        These panels do not yet exist and should be considered:
+
+        {proposed_items}
+
+        ## Target dashboards
+
+        {dashboard_targets}
+
+        ## Acceptance criteria
+
+        - [ ] Dashboard panels added to the appropriate dashboard
+        - [ ] Panels use recording rules where applicable
+        - [ ] Dashboard tested with sample data
+        - [ ] Panels follow existing layout conventions
+
+        ## Out of scope
+
+        - Metrics implementation (separate story)
+        - Alerting rules (separate story)
+    telemetry:
+      label: "telemetry recording rules"
+      description_template: |
+        ## Why this is needed
+
+        The epic {epic_key} ("{epic_summary}") introduces functionality
+        whose adoption and performance should be tracked via cluster-level
+        telemetry metrics collected through the CMO Telemeter pipeline.
+
+        {why_section}
+
+        ## Scope from epic/stories
+
+        {scope_section}
+
+        ## Proposed telemetry recording rules
+
+        These cluster-level recording rules are not currently on the CMO
+        allowlist and should be considered for telemetry collection:
+
+        {proposed_items}
+
+        ## CMO metrics.yaml entries
+
+        {cmo_entries}
+
+        ## Acceptance criteria
+
+        - [ ] Recording rules aggregate to cluster level (no per-pod/per-node labels)
+        - [ ] Recording rules tested against sample data
+        - [ ] CMO metrics.yaml PR filed with match entries
+        - [ ] Telemetry data verified in RHOBS staging
+
+        ## Out of scope
+
+        - Metrics implementation (separate story)
+        - Dashboard panels (separate story)

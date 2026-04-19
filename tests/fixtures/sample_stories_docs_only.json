@@ -1,0 +1,8 @@
+[
+  {
+    "key": "CNV-99011",
+    "summary": "Write VM export documentation",
+    "description": "Create user-facing documentation only describing the export workflow. This is a copy change with no runtime impact.",
+    "issue_type": "Story"
+  }
+]

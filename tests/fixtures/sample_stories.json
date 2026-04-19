@@ -1,0 +1,20 @@
+[
+  {
+    "key": "CNV-99002",
+    "summary": "Implement hotplug NIC controller in VMI reconciler",
+    "description": "Add reconciler logic to handle NIC hotplug requests. The controller should watch for annotation changes and trigger the attach/detach workflow. Must handle error cases and retry.",
+    "issue_type": "Story"
+  },
+  {
+    "key": "CNV-99003",
+    "summary": "Update networking data path for hotplug interfaces",
+    "description": "Modify the networking data path to support dynamically added interfaces. Includes changes to the bridge binding and tap device management. Must handle timeout and error recovery.",
+    "issue_type": "Story"
+  },
+  {
+    "key": "CNV-99004",
+    "summary": "Add e2e tests for hotplug NIC live migration",
+    "description": "Write end-to-end tests covering NIC hotplug during live migration. Test both successful hotplug and error scenarios.",
+    "issue_type": "Story"
+  }
+]

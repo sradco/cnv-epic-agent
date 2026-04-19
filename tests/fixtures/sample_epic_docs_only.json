@@ -1,0 +1,6 @@
+{
+  "key": "CNV-99010",
+  "summary": "Update user guide for VM export feature",
+  "description": "Update the documentation and user guide to cover the new VM export functionality. This is a docs-only change with no code modifications.",
+  "issue_type": "Epic"
+}

@@ -1,0 +1,6 @@
+{
+  "key": "CNV-99001",
+  "summary": "Add hotplug NIC support for live migration",
+  "description": "Implement hotplug network interface support that allows attaching and detaching NICs to running VMs during live migration. This involves changes to the VMI controller reconciler and networking data path.",
+  "issue_type": "Epic"
+}

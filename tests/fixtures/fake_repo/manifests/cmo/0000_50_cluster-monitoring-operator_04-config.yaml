@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: telemetry-config
+  namespace: openshift-monitoring
+data:
+  metrics.yaml: |-
+    matches:
+    #
+    # owners: (https://github.com/kubevirt)
+    #
+    # cnv:vmi_status_running:count is the total number of VM instances running.
+    - '{__name__="cnv:vmi_status_running:count"}'
+    #
+    # owners: (https://github.com/kubevirt)
+    #
+    # cnv_abnormal represents the reason why the operator might have an issue.
+    - '{__name__="cnv_abnormal", reason=~"memory_working_set_delta_from_request|memory_rss_delta_from_request"}'
+    #
+    # owners: (https://github.com/kubevirt)
+    #
+    # cluster:vmi_request_cpu_cores:sum is the total number of CPU cores requested.
+    - '{__name__="cluster:vmi_request_cpu_cores:sum"}'
+    #
+    # owners: (@openshift/openshift-team-monitoring)
+    #
+    # cluster:node_instance_type_count:sum is the number of nodes by type.
+    - '{__name__="cluster:node_instance_type_count:sum"}'
