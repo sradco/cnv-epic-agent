@@ -36,7 +36,7 @@ def register_github_tools(server: Any) -> None:
         - scan_yaml: scan YAML files (default: True)
         - scan_json_dashboards: scan JSON files (default: True)
         """
-        from mcp.github.discover import (
+        from mcpserver.github.discover import (
             discover_observability,
             format_inventory,
         )
@@ -63,8 +63,8 @@ def register_github_tools(server: Any) -> None:
         - metric_type: filter by type (counter, gauge, histogram, summary)
         - branch: git branch to scan (default: repo default branch)
         """
-        from mcp.server import load_config
-        from mcp.github.discover import build_all_inventories
+        from mcpserver.server import load_config
+        from mcpserver.github.discover import build_all_inventories
 
         cfg = load_config()
         inv = build_all_inventories(cfg, branch=branch)
@@ -121,8 +121,8 @@ def register_github_tools(server: Any) -> None:
         - severity: filter by severity (critical, warning, info)
         - branch: git branch to scan (default: repo default branch)
         """
-        from mcp.server import load_config
-        from mcp.github.discover import build_all_inventories
+        from mcpserver.server import load_config
+        from mcpserver.github.discover import build_all_inventories
 
         cfg = load_config()
         inv = build_all_inventories(cfg, branch=branch)
@@ -187,8 +187,8 @@ def register_github_tools(server: Any) -> None:
         """
         import fnmatch
 
-        from mcp.server import load_config
-        from mcp.github.discover import build_all_inventories
+        from mcpserver.server import load_config
+        from mcpserver.github.discover import build_all_inventories
 
         cfg = load_config()
         inv = build_all_inventories(cfg, branch=branch)
@@ -346,8 +346,8 @@ def register_github_tools(server: Any) -> None:
         - scope: filter by type (perses-go, perses-yaml, grafana-json)
         - branch: git branch to scan (default: repo default branch)
         """
-        from mcp.server import load_config
-        from mcp.github.discover import (
+        from mcpserver.server import load_config
+        from mcpserver.github.discover import (
             build_all_inventories,
             extract_metric_names_from_promql,
             find_unvisualized_metrics,
@@ -468,8 +468,8 @@ def register_github_tools(server: Any) -> None:
         from agent.analyzer.analysis import (
             suggest_telemetry as _suggest,
         )
-        from mcp.server import load_config
-        from mcp.github.discover import build_all_inventories
+        from mcpserver.server import load_config
+        from mcpserver.github.discover import build_all_inventories
 
         cfg = load_config()
         inv = build_all_inventories(cfg, branch=branch)
@@ -553,8 +553,8 @@ def register_github_tools(server: Any) -> None:
         Parameters:
         - branch: git branch to scan (default: repo default branch)
         """
-        from mcp.server import load_config
-        from mcp.github.discover import (
+        from mcpserver.server import load_config
+        from mcpserver.github.discover import (
             build_all_inventories,
             find_cluster_level_rules,
         )

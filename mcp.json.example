@@ -2,7 +2,7 @@
   "mcpServers": {
     "cnv-epic-agent": {
       "command": "uv",
-      "args": ["run", "/home/sradco/git-repos/upstream/cnv-repos/cnv-epic-agent/mcp/server.py"],
+      "args": ["run", "/home/sradco/git-repos/upstream/cnv-repos/cnv-epic-agent/mcpserver/server.py"],
       "env": {
         "JIRA_EMAIL": "${JIRA_EMAIL}",
         "JIRA_TOKEN": "${JIRA_TOKEN}"

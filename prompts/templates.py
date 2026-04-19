@@ -13,6 +13,57 @@ from typing import Any
 
 from schemas.stories import SP_ESTIMATION_JSON_SCHEMA, STORY_JSON_SCHEMA
 
+_PROPOSALS_MAX_CHARS = 4000
+_TELEMETRY_MAX_CHARS = 2000
+
+
+def _capped_json(
+    data: Any,
+    max_chars: int,
+    *,
+    label: str = "items",
+) -> str:
+    """Serialize *data* to JSON, truncating if it exceeds *max_chars*.
+
+    When the full dump is too large, items are dropped from the end
+    until the output fits.  A note is appended so the LLM knows
+    the data was trimmed.
+    """
+    full = json.dumps(data, indent=2, default=str)
+    if len(full) <= max_chars:
+        return full
+
+    if isinstance(data, list):
+        total = len(data)
+        subset = list(data)
+        while subset:
+            attempt = json.dumps(subset, indent=2, default=str)
+            if len(attempt) <= max_chars:
+                return (
+                    attempt.rstrip()
+                    + f"\n// (truncated — {total} total {label},"
+                    + f" showing top {len(subset)})"
+                )
+            subset.pop()
+        return f"[]  // (truncated — {total} total {label})"
+
+    if isinstance(data, dict):
+        total = len(data)
+        keys = list(data.keys())
+        while keys:
+            subset_dict = {k: data[k] for k in keys}
+            attempt = json.dumps(subset_dict, indent=2, default=str)
+            if len(attempt) <= max_chars:
+                return (
+                    attempt.rstrip()
+                    + f"\n// (truncated — {total} total {label},"
+                    + f" showing top {len(keys)})"
+                )
+            keys.pop()
+        return f"{{}}  // (truncated — {total} total {label})"
+
+    return full[:max_chars] + f"\n// (truncated — full output was {len(full)} chars)"
+
 SYSTEM_PROMPT = """\
 You are an expert Site Reliability Engineer and engineering lead
 specializing in KubeVirt / CNV.  Your job is to compose Jira stories
@@ -138,7 +189,7 @@ def build_story_composition_prompt(
         parts.append("## Analysis findings (existing + proposed)")
         parts.append("")
         parts.append("```json")
-        parts.append(json.dumps(proposals, indent=2, default=str))
+        parts.append(_capped_json(proposals, _PROPOSALS_MAX_CHARS, label="proposals"))
         parts.append("```")
         parts.append("")
 
@@ -153,7 +204,7 @@ def build_story_composition_prompt(
     if telemetry:
         parts.append("## Telemetry candidates (not on CMO allowlist)")
         parts.append("```json")
-        parts.append(json.dumps(telemetry, indent=2, default=str))
+        parts.append(_capped_json(telemetry, _TELEMETRY_MAX_CHARS, label="telemetry items"))
         parts.append("```")
         parts.append("")
 

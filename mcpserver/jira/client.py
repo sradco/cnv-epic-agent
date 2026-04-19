@@ -12,6 +12,32 @@ from agent.analyzer.analysis import IssueDoc
 
 logger = logging.getLogger(__name__)
 
+_PAGE_SIZE = 200
+
+
+def _search_all(
+    client: JIRA,
+    jql: str,
+    page_size: int = _PAGE_SIZE,
+) -> list[Any]:
+    """Page through all results for a JQL query.
+
+    The jira library's ``search_issues`` caps at ``maxResults``
+    per call.  This helper loops until all matching issues are
+    collected.
+    """
+    all_issues: list[Any] = []
+    start_at = 0
+    while True:
+        page = client.search_issues(
+            jql, startAt=start_at, maxResults=page_size,
+        )
+        all_issues.extend(page)
+        if len(page) < page_size:
+            break
+        start_at += page_size
+    return all_issues
+
 
 def get_jira_client(cfg: dict[str, Any]) -> JIRA:
     url = os.environ.get("JIRA_URL", cfg.get("jira", {}).get("url", "https://redhat.atlassian.net"))
@@ -42,7 +68,7 @@ def search_epics(
             "project = {project} AND type = Epic AND created >= -{since_days}d",
         )
         jql = template.format(project=proj, since_days=days)
-    return client.search_issues(jql, maxResults=200)
+    return _search_all(client, jql)
 
 
 def fetch_child_issues(
@@ -58,7 +84,7 @@ def fetch_child_issues(
         'project = {project} AND "Epic Link" = {epic_key}',
     )
     jql = template.format(project=proj, epic_key=epic_key)
-    return client.search_issues(jql, maxResults=200)
+    return _search_all(client, jql)
 
 
 def fetch_epic_with_children(
@@ -334,7 +360,7 @@ def fetch_unsized_stories(
         f'AND type = Story'
     )
     try:
-        issues = client.search_issues(jql, maxResults=200)
+        issues = _search_all(client, jql)
     except Exception:
         logger.warning(
             "Failed to fetch children of %s for SP scan",

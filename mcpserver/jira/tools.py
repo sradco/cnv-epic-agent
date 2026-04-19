@@ -31,11 +31,11 @@ def register_jira_tools(server: Any) -> None:
         - since_days: how far back to look (default: 30)
         - jql: optional raw JQL override
         """
-        from mcp.server import load_config, get_inventory
+        from mcpserver.server import load_config, get_inventory
 
         from agent.analyzer.analysis import build_analysis_result
         from agent.analyzer.formatter import format_scan_table
-        from mcp.jira.client import (
+        from mcpserver.jira.client import (
             get_jira_client,
             search_epics as _search_epics,
             fetch_epic_with_children,
@@ -89,11 +89,11 @@ def register_jira_tools(server: Any) -> None:
         Parameters:
         - epic_key: the Jira epic key (e.g. CNV-12345)
         """
-        from mcp.server import load_config, get_inventory
+        from mcpserver.server import load_config, get_inventory
 
         from agent.analyzer.analysis import build_analysis_result
         from agent.analyzer.formatter import format_analysis_result
-        from mcp.jira.client import get_jira_client, fetch_epic_with_children
+        from mcpserver.jira.client import get_jira_client, fetch_epic_with_children
 
         cfg = load_config()
         client = get_jira_client(cfg)
@@ -125,10 +125,10 @@ def register_jira_tools(server: Any) -> None:
         Parameters:
         - epic_key: the Jira epic key (e.g. CNV-12345)
         """
-        from mcp.server import load_config, get_inventory
+        from mcpserver.server import load_config, get_inventory
 
         from agent.analyzer.analysis import build_analysis_result
-        from mcp.jira.client import get_jira_client, fetch_epic_with_children
+        from mcpserver.jira.client import get_jira_client, fetch_epic_with_children
 
         cfg = load_config()
         client = get_jira_client(cfg)
@@ -170,11 +170,11 @@ def register_jira_tools(server: Any) -> None:
         if detail not in ("summary", "full"):
             return "Parameter 'detail' must be \"summary\" or \"full\"."
 
-        from mcp.server import load_config, get_inventory
+        from mcpserver.server import load_config, get_inventory
 
         from agent.analyzer.analysis import build_analysis_result
         from agent.analyzer.formatter import build_subtask_payloads
-        from mcp.jira.client import (
+        from mcpserver.jira.client import (
             get_jira_client,
             fetch_epic_with_children,
             find_existing_obs_stories,
@@ -399,9 +399,9 @@ def register_jira_tools(server: Any) -> None:
         if not description:
             return "Parameter 'description' is required."
 
-        from mcp.server import load_config
+        from mcpserver.server import load_config
 
-        from mcp.jira.client import (
+        from mcpserver.jira.client import (
             get_jira_client,
             find_existing_obs_stories,
             find_or_create_obs_epic,

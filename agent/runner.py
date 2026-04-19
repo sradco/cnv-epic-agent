@@ -24,8 +24,8 @@ from agent.analyzer.formatter import (
     format_analysis_result,
 )
 from agent.planner.planner import compose_stories, estimate_story_points
-from mcp.github.discover import build_all_inventories
-from mcp.jira.client import (
+from mcpserver.github.discover import build_all_inventories
+from mcpserver.jira.client import (
     create_obs_story,
     fetch_child_issues,
     fetch_epic_with_children,
@@ -95,6 +95,7 @@ def run(
     estimate_existing_sp: bool = (
         sp_enabled and sp_cfg.get("estimate_existing", False)
     )
+    temperature: float = float(agent_cfg.get("temperature", 0.2))
 
     client = get_jira_client(cfg)
 
@@ -185,6 +186,7 @@ def run(
             stories = compose_stories(
                 result,
                 model=model,
+                temperature=temperature,
                 categories=enabled_categories,
                 category_guidance=category_guidance,
                 story_points_guidance=story_points_guidance,
@@ -205,7 +207,7 @@ def run(
             report_lines.append("")
             continue
 
-        if version and (apply or not apply):
+        if version:
             obs_epic = find_or_create_obs_epic(
                 client, cfg, version, dry_run=not apply,
             )
@@ -289,6 +291,7 @@ def run(
                     epic_description=epic.description or "",
                     stories=unsized_data,
                     model=model,
+                    temperature=temperature,
                     story_points_guidance=story_points_guidance,
                 )
 

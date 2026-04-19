@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from mcp.github.discover import invalidate_cache
+from mcpserver.github.discover import invalidate_cache
 
 
 def register_config_tools(server: Any) -> None:
@@ -19,7 +19,7 @@ def register_config_tools(server: Any) -> None:
         Returns the active keyword lists, JQL templates, need-assessment
         rules, proposal library, and story templates.
         """
-        from mcp.server import load_config
+        from mcpserver.server import load_config
 
         cfg = load_config()
         return (

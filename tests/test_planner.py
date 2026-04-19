@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.planner.llm import parse_json_response
-from mcp.jira.client import _should_set_story_points
+from mcpserver.jira.client import _should_set_story_points
 from prompts.templates import (
     build_story_composition_prompt,
     build_sp_estimation_prompt,

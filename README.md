@@ -12,7 +12,7 @@ dashboards, telemetry), docs, and QE — with LLM-estimated story points.
 
 ```
 cnv-epic-agent/
-  mcp/                — MCP server (deterministic tools, no LLM)
+  mcpserver/           — MCP server (deterministic tools, no LLM)
     server.py         — FastMCP entrypoint, registers all tools + prompts
     jira/             — Jira tools (scan, analyze, create) + client
     github/           — Code discovery tools + scanner
@@ -32,10 +32,10 @@ cnv-epic-agent/
 
 **Key design principles:**
 
-- **MCP tools are stateless and deterministic** — no LLM calls inside `mcp/`
+- **MCP tools are stateless and deterministic** — no LLM calls inside `mcpserver/`
 - **Agent orchestrates LLM reasoning** — only `agent/planner/` talks to an LLM
 - **Shared schemas** — both MCP prompts and agent use `schemas/stories.py`
-- **Shared prompts** — both `mcp/server.py` prompt and agent use `prompts/templates.py`
+- **Shared prompts** — both `mcpserver/server.py` prompt and agent use `prompts/templates.py`
 - **Pluggable categories** — enabled via `config.yaml` `agent.enabled_categories`
 
 ## Quick Start
@@ -51,7 +51,7 @@ export JIRA_TOKEN="your-atlassian-api-token"
 ### 1. MCP Server (any MCP client: Cursor, Claude Desktop, etc.)
 
 ```bash
-uv run mcp/server.py
+uv run mcpserver/server.py
 ```
 
 The MCP server exposes tools that any MCP-compatible client can call.
@@ -62,7 +62,7 @@ Add to your MCP client config:
   "mcpServers": {
     "cnv-epic-agent": {
       "command": "uv",
-      "args": ["run", "/path/to/cnv-epic-agent/mcp/server.py"],
+      "args": ["run", "/path/to/cnv-epic-agent/mcpserver/server.py"],
       "env": {
         "JIRA_EMAIL": "${JIRA_EMAIL}",
         "JIRA_TOKEN": "${JIRA_TOKEN}"

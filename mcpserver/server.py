@@ -15,7 +15,7 @@ Exposes deterministic tools for Jira epic analysis, code-level
 observability discovery, and story creation.  LLM reasoning lives in
 the agent layer (agent/), not here.
 
-Run with: JIRA_TOKEN=xxx uv run mcp/server.py
+Run with: JIRA_TOKEN=xxx uv run mcpserver/server.py
 """
 
 import logging
@@ -30,9 +30,9 @@ _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from mcp.jira.tools import register_jira_tools
-from mcp.github.tools import register_github_tools
-from mcp.tools.config import register_config_tools
+from mcpserver.jira.tools import register_jira_tools
+from mcpserver.github.tools import register_github_tools
+from mcpserver.tools.config import register_config_tools
 from prompts.templates import SYSTEM_PROMPT, build_story_composition_prompt
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def load_config() -> dict[str, Any]:
 def get_inventory(cfg: dict[str, Any]) -> Any:
     """Load the full discovered inventory from the cache if available."""
     try:
-        from mcp.github.discover import build_all_inventories
+        from mcpserver.github.discover import build_all_inventories
 
         return build_all_inventories(cfg)
     except Exception:
@@ -77,7 +77,7 @@ async def compose_observability_stories(epic_key: str) -> str:
     - epic_key: the Jira epic key (e.g. CNV-12345)
     """
     from agent.analyzer.analysis import build_analysis_result
-    from mcp.jira.client import get_jira_client, fetch_epic_with_children
+    from mcpserver.jira.client import get_jira_client, fetch_epic_with_children
 
     cfg = load_config()
     agent_cfg = cfg.get("agent", {})

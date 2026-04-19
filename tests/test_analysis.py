@@ -108,7 +108,7 @@ class TestFeatureTypeDetection:
 
 class TestProposalGeneration:
     def test_proposals_return_two_section_structure(self):
-        from mcp.github.discover import (
+        from mcpserver.github.discover import (
             MetricInfo,
             AlertRuleInfo,
             ObservabilityInventory,
@@ -168,7 +168,7 @@ class TestProposalGeneration:
             assert len(e["rationale"]) > 0
 
     def test_existing_items_have_rationale_with_matched_keyword(self):
-        from mcp.github.discover import MetricInfo, ObservabilityInventory
+        from mcpserver.github.discover import MetricInfo, ObservabilityInventory
 
         inv = ObservabilityInventory(
             repo_path="test",
@@ -236,7 +236,7 @@ class TestProposalGeneration:
         assert proposals["dashboards"]["existing"] == []
 
     def test_empty_inventory_produces_empty_existing(self):
-        from mcp.github.discover import ObservabilityInventory
+        from mcpserver.github.discover import ObservabilityInventory
 
         inv = ObservabilityInventory(repo_path="test")
         issues = [
@@ -324,7 +324,7 @@ class TestProposeNewItems:
 
 class TestTelemetryRationale:
     def test_suggest_telemetry_includes_rationale(self):
-        from mcp.github.discover import ObservabilityInventory, RecordingRuleInfo
+        from mcpserver.github.discover import ObservabilityInventory, RecordingRuleInfo
 
         inv = ObservabilityInventory(
             repo_path="test",
@@ -354,7 +354,7 @@ class TestTelemetryRationale:
         assert "sum" in candidates[0]["rationale"].lower()
 
     def test_rationale_mentions_cluster_prefix(self):
-        from mcp.github.discover import ObservabilityInventory, RecordingRuleInfo
+        from mcpserver.github.discover import ObservabilityInventory, RecordingRuleInfo
 
         inv = ObservabilityInventory(
             repo_path="test",
