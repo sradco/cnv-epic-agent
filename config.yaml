@@ -2,6 +2,7 @@ jira:
   url: "https://redhat.atlassian.net"
   default_project: "CNV"
   default_since_days: 30
+  version_format: "CNV v{version}"
   jql_template: "project = {project} AND type = Epic AND created >= -{since_days}d"
   child_issues_jql_template: "project = {project} AND \"Epic Link\" = {epic_key}"
 

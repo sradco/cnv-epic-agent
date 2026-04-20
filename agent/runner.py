@@ -36,6 +36,7 @@ from mcpserver.jira.client import (
     fetch_unsized_stories,
     find_existing_obs_stories,
     find_or_create_obs_epic,
+    format_jira_version,
     get_jira_client,
     is_duplicate_story,
     needs_grooming,
@@ -323,6 +324,7 @@ def _estimate_existing_sp(
 
 def run(
     epic_keys: list[str] | None = None,
+    jql: str | None = None,
     version: str = "",
     since_days: int | None = None,
     component: str | None = None,
@@ -338,6 +340,7 @@ def run(
 
     Parameters:
     - epic_keys: specific epic keys to process (None = scan via JQL)
+    - jql: raw JQL query (bypasses all other filters)
     - version: CNV version for the observability epic
     - since_days: how far back to scan (overrides config)
     - component: filter epics by Jira component name
@@ -382,6 +385,15 @@ def run(
     logger.info("[%s] Building observability inventory...", run_id)
     inv = build_all_inventories(cfg)
 
+    if version and not fix_version and not target_version:
+        jira_version = format_jira_version(cfg, version)
+        fix_version = jira_version
+        target_version = jira_version
+        logger.info(
+            "[%s] Auto-derived version filter: %s",
+            run_id, jira_version,
+        )
+
     if epic_keys:
         epics_to_process: list[Any] = []
         for key in epic_keys:
@@ -393,6 +405,9 @@ def run(
                     "[%s] Failed to fetch epic %s",
                     run_id, key, exc_info=True,
                 )
+    elif jql:
+        logger.info("[%s] Using raw JQL: %s", run_id, jql)
+        epics_to_process = search_epics(client, cfg, jql=jql)
     else:
         kwargs: dict[str, Any] = {}
         if since_days:
@@ -423,14 +438,17 @@ def run(
     )
 
     filters_active: list[str] = []
-    if component:
-        filters_active.append(f"component={component}")
-    if fix_version:
-        filters_active.append(f"fixVersion={fix_version}")
-    if target_version:
-        filters_active.append(f"targetVersion={target_version}")
-    if labels:
-        filters_active.append(f"labels={','.join(labels)}")
+    if jql:
+        filters_active.append(f"jql={jql}")
+    else:
+        if component:
+            filters_active.append(f"component={component}")
+        if fix_version:
+            filters_active.append(f"fixVersion={fix_version}")
+        if target_version:
+            filters_active.append(f"targetVersion={target_version}")
+        if labels:
+            filters_active.append(f"labels={','.join(labels)}")
 
     report_lines: list[str] = [
         f"# Epic Agent Run ({'APPLY' if apply else 'DRY-RUN'})",

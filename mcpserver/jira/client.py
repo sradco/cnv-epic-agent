@@ -89,6 +89,14 @@ def get_jira_client(cfg: dict[str, Any]) -> JIRA:
     return JIRA(server=url, token_auth=token)
 
 
+def format_jira_version(cfg: dict[str, Any], version: str) -> str:
+    """Format a short version (e.g. '4.22') into the Jira version
+    string (e.g. 'CNV v4.22') using the config pattern."""
+    jira_cfg = cfg.get("jira", {})
+    fmt = jira_cfg.get("version_format", "CNV v{version}")
+    return fmt.format(version=version)
+
+
 def build_epic_jql(
     cfg: dict[str, Any],
     *,
@@ -102,6 +110,9 @@ def build_epic_jql(
     """Build a JQL query for epic scanning with optional filters.
 
     Each non-None filter appends an AND clause to the base template.
+    When both fix_version and target_version are provided with the
+    same value, they are combined with OR so epics with either field
+    set are matched.
     """
     jira_cfg = cfg.get("jira", {})
     proj = project or jira_cfg.get("default_project", "CNV")
@@ -115,10 +126,17 @@ def build_epic_jql(
 
     if component:
         jql += f' AND component = "{component}"'
-    if fix_version:
+
+    if fix_version and target_version:
+        jql += (
+            f' AND (fixVersion = "{fix_version}"'
+            f' OR "Target Version" = "{target_version}")'
+        )
+    elif fix_version:
         jql += f' AND fixVersion = "{fix_version}"'
-    if target_version:
+    elif target_version:
         jql += f' AND "Target Version" = "{target_version}"'
+
     if labels:
         for label in labels:
             jql += f' AND labels = "{label}"'

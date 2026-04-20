@@ -276,16 +276,18 @@ Add to your MCP client config:
 
 ```bash
 # Dry-run: scan recent epics for CNV 4.22
+# --version auto-derives JQL filters:
+#   fixVersion = "CNV v4.22" OR "Target Version" = "CNV v4.22"
 python -m agent.cli --version 4.22
-
-# Analyze a single epic
-python -m agent.cli --epic CNV-84388 --version 4.22
 
 # Filter by component
 python -m agent.cli --version 4.22 --component "CNV Virtualization"
 
-# Filter by fix version and labels
-python -m agent.cli --version 4.22 --fix-version 4.22 --label gpu
+# Analyze a single epic (no version filter needed)
+python -m agent.cli --epic CNV-84388
+
+# Explicit version overrides (skip auto-derivation)
+python -m agent.cli --fix-version "CNV v4.23.0" --label gpu
 
 # Run only specific categories
 python -m agent.cli --version 4.22 --categories metrics,docs,qe
@@ -297,7 +299,7 @@ python -m agent.cli --epic CNV-84388 --version 4.22 --apply
 python -m agent.cli --version 4.22 --no-llm
 
 # Override the LLM model
-LLM_MODEL=anthropic/claude-sonnet-4-20250514 python -m agent.cli --version 4.22
+LLM_MODEL=gemini/gemini-2.5-flash python -m agent.cli --version 4.22
 ```
 
 The CLI agent supports any LLM provider via

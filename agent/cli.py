@@ -20,6 +20,9 @@ Usage examples::
 
     # Override the LLM model
     LLM_MODEL=anthropic/claude-sonnet-4-20250514 python -m agent.cli --version 4.22
+
+    # Use a raw JQL query
+    python -m agent.cli --jql 'project = "OpenShift Virtualization" AND type = Epic AND fixVersion = "CNV v4.22.0"'
 """
 
 from __future__ import annotations
@@ -45,9 +48,22 @@ def main() -> None:
         help="Specific epic key(s) to process (default: scan via JQL)",
     )
     parser.add_argument(
+        "--jql",
+        default=None,
+        help=(
+            "Raw JQL query to select epics. Bypasses all other "
+            "filters (--version, --component, --fix-version, etc.)"
+        ),
+    )
+    parser.add_argument(
         "--version",
-        required=True,
-        help="CNV version (e.g. 4.22)",
+        default="",
+        help=(
+            "CNV version (e.g. 4.22). Auto-derives fixVersion "
+            "and Target Version JQL filters using the Jira "
+            "version format (e.g. 'CNV v4.22'). Also used to "
+            "name the observability epic."
+        ),
     )
     parser.add_argument(
         "--since-days",
@@ -129,6 +145,7 @@ def main() -> None:
 
     report = run(
         epic_keys=args.epic,
+        jql=args.jql,
         version=args.version,
         since_days=args.since_days,
         component=args.component,

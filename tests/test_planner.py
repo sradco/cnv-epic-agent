@@ -14,6 +14,7 @@ from mcpserver.jira.client import (
     _normalize_summary,
     _should_set_story_points,
     build_epic_jql,
+    format_jira_version,
     is_duplicate_story,
     needs_grooming,
 )
@@ -663,6 +664,21 @@ class TestConfigValidation:
             _validate_config(cfg)
 
 
+class TestFormatJiraVersion:
+    """Verify version string formatting."""
+
+    def test_default_format(self):
+        cfg = {"jira": {"version_format": "CNV v{version}"}}
+        assert format_jira_version(cfg, "4.22") == "CNV v4.22"
+
+    def test_custom_format(self):
+        cfg = {"jira": {"version_format": "OCP-{version}"}}
+        assert format_jira_version(cfg, "4.23.0") == "OCP-4.23.0"
+
+    def test_fallback_when_no_config(self):
+        assert format_jira_version({}, "4.22") == "CNV v4.22"
+
+
 class TestBuildEpicJql:
     """Verify JQL filter building for epic scans."""
 
@@ -714,6 +730,16 @@ class TestBuildEpicJql:
         )
         assert 'labels = "gpu"' in jql
         assert 'labels = "cnv-4.22"' in jql
+
+    def test_both_versions_combined_with_or(self):
+        jql = build_epic_jql(
+            self._CFG,
+            fix_version="CNV v4.22",
+            target_version="CNV v4.22",
+        )
+        assert 'fixVersion = "CNV v4.22"' in jql
+        assert '"Target Version" = "CNV v4.22"' in jql
+        assert " OR " in jql
 
     def test_all_filters_combined(self):
         jql = build_epic_jql(
