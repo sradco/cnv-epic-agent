@@ -200,9 +200,11 @@ Docs story rules:
 - Only when the epic introduces a new user-facing feature, \
 changes behavior, renames concepts, or modifies APIs/CLI/UI.
 - Internal refactoring or backend-only changes do NOT need docs.
-- Keep the description minimal: state what needs documenting \
-and the acceptance criteria checklist. Do NOT include "Why \
-this matters" / "Who benefits" / "How it is used" sections.
+- Description format: a short plain-text paragraph describing \
+what needs to be documented, followed by an acceptance \
+criteria checklist. Nothing else. Do NOT add sections like \
+"Why this is needed", "Proposed changes", "Who benefits", \
+"How it is used", or any other headings.
 """
 
 _QE_RULES = """\
@@ -210,10 +212,10 @@ QE story rules:
 - Take a QE engineer role. Split by test type / scope. \
 Group same-type tests into one story. Reference child \
 story keys.
-- Keep the description minimal: list what needs to be \
-tested as a checklist of specific test cases. Do NOT \
-include "Why this matters" / "Who benefits" / "How it \
-is used" sections.
+- Description format: a checklist of specific test cases \
+to verify. Nothing else. Do NOT add sections like \
+"Why this is needed", "Proposed changes", "Who benefits", \
+"How it is used", or any other headings.
 - Distinguish new vs. migrated items: moved/refactored items \
 (same names) already have tests — only propose end-to-end \
 and upgrade/rollback verification. Renamed metrics need a \

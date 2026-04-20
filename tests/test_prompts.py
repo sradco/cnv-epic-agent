@@ -124,8 +124,8 @@ class TestGetSystemPromptWithDocs:
 
     def test_docs_minimal_description(self):
         lowered = get_system_prompt(["docs"]).lower()
-        assert "minimal" in lowered
-        assert 'do not include "why' in lowered
+        assert "nothing else" in lowered
+        assert '"why this is needed"' in lowered
 
     def test_docs_rules_not_injected_without_docs(self):
         lowered = get_system_prompt(["metrics"]).lower()
@@ -156,8 +156,8 @@ class TestGetSystemPromptWithQE:
 
     def test_qe_minimal_description(self):
         lowered = get_system_prompt(["qe"]).lower()
-        assert "minimal" in lowered
-        assert 'do not include "why' in lowered
+        assert "nothing else" in lowered
+        assert '"why this is needed"' in lowered
 
     def test_qe_rules_not_injected_without_qe(self):
         lowered = get_system_prompt(["metrics"]).lower()
