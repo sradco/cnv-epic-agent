@@ -389,10 +389,17 @@ def is_duplicate_story(
     2. Exact normalized summary match.
     3. Key reference: LLM summary embeds a Jira key (e.g.
        "(CNV-51517)") that matches an existing child's key.
+       Disabled for source-epic children (``_from_children``).
     4. Containment: one normalized summary is wholly contained
        within the other (minimum 20 chars on the existing
        summary to avoid false positives on short strings;
        equal strings are caught by strategy 2).
+       Disabled for source-epic children (``_from_children``).
+
+    Strategies 3 and 4 are skipped for entries tagged with
+    ``_from_children=True`` because the LLM intentionally embeds
+    child keys and reuses child phrasing in observability/QE/docs
+    story summaries — those are different work items, not duplicates.
     """
     new_hash = _hash_summary(story_summary)
     norm_new = _normalize_summary(story_summary)
@@ -408,6 +415,10 @@ def is_duplicate_story(
 
         if norm_existing == norm_new:
             return True
+
+        from_children = e.get("_from_children", False)
+        if from_children:
+            continue
 
         e_key = e.get("key", "")
         if e_key and e_key in embedded_keys:

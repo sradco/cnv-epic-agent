@@ -146,6 +146,13 @@ def _children_as_dedup_entries(
     against the source epic's existing child issues, preventing
     the agent from proposing stories that duplicate work already
     tracked under the feature epic.
+
+    Entries are tagged ``"_from_children": True`` so that
+    ``is_duplicate_story`` uses only exact-summary matching.
+    Key-reference and containment strategies are disabled for
+    children because the LLM intentionally embeds child keys in
+    proposed stories and child summaries are naturally substrings
+    of the proposed observability/QE/docs summaries.
     """
     entries: list[dict[str, Any]] = []
     for child in children:
@@ -154,6 +161,7 @@ def _children_as_dedup_entries(
             "summary": child.summary,
             "labels": [],
             "description": child.description,
+            "_from_children": True,
         })
     return entries
 

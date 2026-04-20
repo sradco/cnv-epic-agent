@@ -453,6 +453,61 @@ class TestIsDuplicateStory:
             existing,
         ) is False
 
+    def test_child_key_reference_not_dup(self):
+        """Proposed story embeds a child key — not a dup for children."""
+        existing = [
+            {
+                "key": "CNV-84168",
+                "summary": "Modify LowVirtCount alerts",
+                "labels": [],
+                "description": "",
+                "_from_children": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][alerts] Modify LowVirtCount "
+            "alerts to use 'running' status for CNV-84168",
+            "CNV-81938",
+            existing,
+        ) is False
+
+    def test_child_containment_not_dup(self):
+        """Child summary contained in proposed — not a dup for children."""
+        existing = [
+            {
+                "key": "CNV-80580",
+                "summary": "Add metric for VMI controller sync count",
+                "labels": [],
+                "description": "",
+                "_from_children": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][metrics] Add metric for VMI "
+            "controller sync count for CNV-80580",
+            "CNV-81938",
+            existing,
+        ) is False
+
+    def test_child_exact_match_still_dup(self):
+        """Exact summary match is still a dup even for children."""
+        existing = [
+            {
+                "key": "CNV-80580",
+                "summary": "[Observability][metrics] Add metric "
+                           "for VMI controller sync count",
+                "labels": [],
+                "description": "",
+                "_from_children": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][metrics] Add metric for VMI "
+            "controller sync count",
+            "CNV-81938",
+            existing,
+        ) is True
+
 
 class TestFingerprintFormat:
     def test_create_obs_story_embeds_fingerprint(self):

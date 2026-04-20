@@ -496,7 +496,9 @@ class TestChildrenAsDedup:
         assert entries[0]["summary"] == "Add GPU metric"
         assert entries[0]["description"] == "Body"
         assert entries[0]["labels"] == []
+        assert entries[0]["_from_children"] is True
         assert entries[1]["key"] == "CNV-11"
+        assert entries[1]["_from_children"] is True
 
     def test_empty_children(self):
         from agent.runner import _children_as_dedup_entries
