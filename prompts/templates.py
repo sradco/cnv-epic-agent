@@ -170,9 +170,12 @@ Observability story rules:
 - Think from the perspective of real customers. Every metric, \
 alert, and dashboard must serve: troubleshooting, capacity \
 planning, health assessment, or operator decision-making.
-- Explain *why* the instrumentation matters and *who* benefits. \
-Include sections: **Why this matters**, **Who benefits**, \
-**How it is used**.
+- Story descriptions MUST include these sections: \
+**Why this matters** (the real-world problem), \
+**Who benefits** (operator / SRE / virt-operator), \
+**How it is used** (alert threshold, dashboard panel, \
+operator decision). This detail is required only for \
+observability stories — not for QE or docs.
 - Use kubevirt_<component>_<noun>_<unit> naming, CamelCase \
 alert names.
 - Alerts MUST be backed by a concrete metric. Name the metric. \
@@ -197,13 +200,20 @@ Docs story rules:
 - Only when the epic introduces a new user-facing feature, \
 changes behavior, renames concepts, or modifies APIs/CLI/UI.
 - Internal refactoring or backend-only changes do NOT need docs.
+- Keep the description minimal: state what needs documenting \
+and the acceptance criteria checklist. Do NOT include "Why \
+this matters" / "Who benefits" / "How it is used" sections.
 """
 
 _QE_RULES = """\
 QE story rules:
 - Take a QE engineer role. Split by test type / scope. \
-Group same-type tests into one story. List specific test \
-cases as checklist items. Reference child story keys.
+Group same-type tests into one story. Reference child \
+story keys.
+- Keep the description minimal: list what needs to be \
+tested as a checklist of specific test cases. Do NOT \
+include "Why this matters" / "Who benefits" / "How it \
+is used" sections.
 - Distinguish new vs. migrated items: moved/refactored items \
 (same names) already have tests — only propose end-to-end \
 and upgrade/rollback verification. Renamed metrics need a \
