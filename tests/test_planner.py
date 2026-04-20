@@ -324,7 +324,7 @@ class TestIsDuplicateStory:
             target_summary,
             "CNV-50",
             existing,
-        ) is True
+        ) is not None
 
     def test_different_summary_same_category_not_dup(self):
         """Two different metrics stories for the same epic are NOT dups."""
@@ -346,7 +346,7 @@ class TestIsDuplicateStory:
             "Second metrics story",
             "CNV-50",
             existing,
-        ) is False
+        ) is None
 
     def test_duplicate_by_summary(self):
         existing = [
@@ -361,7 +361,7 @@ class TestIsDuplicateStory:
             "[Observability][metrics] Add VM metrics",
             "CNV-50",
             existing,
-        ) is True
+        ) is not None
 
     def test_not_duplicate(self):
         existing = [
@@ -376,12 +376,12 @@ class TestIsDuplicateStory:
             "[Observability][metrics] Add VM metrics",
             "CNV-50",
             existing,
-        ) is False
+        ) is None
 
     def test_empty_existing(self):
         assert is_duplicate_story(
             "Any summary", "CNV-1", [],
-        ) is False
+        ) is None
 
     def test_duplicate_by_embedded_key(self):
         """LLM embeds a child key like (CNV-51517) in the summary."""
@@ -398,7 +398,7 @@ class TestIsDuplicateStory:
             "for allocated GPU per VM (CNV-51517)",
             "CNV-51516",
             existing,
-        ) is True
+        ) is not None
 
     def test_duplicate_by_containment(self):
         """Child summary is contained within the LLM summary."""
@@ -417,7 +417,7 @@ class TestIsDuplicateStory:
             "(CNV-84407)",
             "CNV-51516",
             existing,
-        ) is True
+        ) is not None
 
     def test_no_containment_for_short_summaries(self):
         """Short child summaries should not trigger containment."""
@@ -433,7 +433,7 @@ class TestIsDuplicateStory:
             "Fix bug in GPU metrics controller",
             "CNV-50",
             existing,
-        ) is False
+        ) is None
 
     def test_equal_length_different_summaries_not_dup(self):
         """Same-length but different summaries must not false-positive."""
@@ -451,7 +451,7 @@ class TestIsDuplicateStory:
             "KubeVirt/CNV dashboards",
             "CNV-51516",
             existing,
-        ) is False
+        ) is None
 
     def test_child_key_reference_is_dup(self):
         """Proposed story embeds a child key — it's about that child's work."""
@@ -469,7 +469,7 @@ class TestIsDuplicateStory:
             "alerts to use 'running' status for CNV-84168",
             "CNV-81938",
             existing,
-        ) is True
+        ) is not None
 
     def test_child_containment_not_dup(self):
         """Child summary contained in proposed but no key ref — not a dup.
@@ -493,7 +493,7 @@ class TestIsDuplicateStory:
             "metric for VMI controller sync count with labels",
             "CNV-81938",
             existing,
-        ) is False
+        ) is None
 
     def test_child_key_ref_plus_containment_is_dup(self):
         """Child summary + key ref in proposed — definitely a dup."""
@@ -511,7 +511,7 @@ class TestIsDuplicateStory:
             "controller sync count for CNV-80580",
             "CNV-81938",
             existing,
-        ) is True
+        ) is not None
 
     def test_child_qe_story_referencing_key_not_dup(self):
         """QE story referencing a child key is complementary, not a dup."""
@@ -529,7 +529,7 @@ class TestIsDuplicateStory:
             "(CNV-80580)",
             "CNV-81938",
             existing,
-        ) is False
+        ) is None
 
     def test_child_docs_story_referencing_key_not_dup(self):
         """Docs story referencing a child key is complementary, not a dup."""
@@ -547,7 +547,7 @@ class TestIsDuplicateStory:
             "alerts (CNV-84168)",
             "CNV-81938",
             existing,
-        ) is False
+        ) is None
 
     def test_child_exact_match_still_dup(self):
         """Exact summary match is still a dup even for children."""
@@ -566,7 +566,199 @@ class TestIsDuplicateStory:
             "controller sync count",
             "CNV-81938",
             existing,
-        ) is True
+        ) is not None
+
+
+class TestBroadSearchDedup:
+    """Verify _from_broad_search entries use only strategies 2+4."""
+
+    def test_broad_exact_summary_match_is_dup(self):
+        existing = [
+            {
+                "key": "CNV-999",
+                "summary": "[Observability][metrics] Add GPU metric",
+                "_from_broad_search": True,
+            },
+        ]
+        result = is_duplicate_story(
+            "[Observability][metrics] Add GPU metric",
+            "CNV-50",
+            existing,
+        )
+        assert result == "CNV-999"
+
+    def test_broad_containment_match_is_dup(self):
+        existing = [
+            {
+                "key": "CNV-888",
+                "summary": "Add GPU passthrough metric",
+                "_from_broad_search": True,
+            },
+        ]
+        result = is_duplicate_story(
+            "[Observability][metrics] Add GPU passthrough "
+            "metric for VM allocation",
+            "CNV-50",
+            existing,
+        )
+        assert result == "CNV-888"
+
+    def test_broad_fingerprint_ignored(self):
+        from mcpserver.jira.client import _hash_summary
+        target = "[Observability][metrics] Add GPU metric"
+        s_hash = _hash_summary(target)
+        existing = [
+            {
+                "key": "CNV-777",
+                "summary": "Unrelated summary",
+                "description": (
+                    f"source_epic=CNV-50 summary_hash={s_hash}"
+                ),
+                "_from_broad_search": True,
+            },
+        ]
+        assert is_duplicate_story(
+            target, "CNV-50", existing,
+        ) is None
+
+    def test_broad_key_reference_ignored(self):
+        existing = [
+            {
+                "key": "CNV-666",
+                "summary": "Some unrelated feature",
+                "_from_broad_search": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability] Add metric (CNV-666)",
+            "CNV-50",
+            existing,
+        ) is None
+
+    def test_broad_no_match_returns_none(self):
+        existing = [
+            {
+                "key": "CNV-555",
+                "summary": "Completely different topic",
+                "_from_broad_search": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][metrics] Add GPU metric",
+            "CNV-50",
+            existing,
+        ) is None
+
+
+class TestFindBroadMatchingStories:
+    """Unit tests for find_broad_matching_stories."""
+
+    def test_builds_jql_and_returns_tagged_entries(self):
+        from unittest.mock import MagicMock
+        from mcpserver.jira.client import (
+            find_broad_matching_stories,
+        )
+
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.key = "CNV-123"
+        mock_issue.fields.summary = "Add migration metric"
+        mock_client.search_issues.return_value = [mock_issue]
+
+        cfg = {"jira": {"default_project": "CNV"}}
+        results = find_broad_matching_stories(
+            mock_client, cfg, "CNV-50",
+            ["migration", "multicast"],
+        )
+
+        assert len(results) == 1
+        assert results[0]["key"] == "CNV-123"
+        assert results[0]["_from_broad_search"] is True
+
+        jql_arg = mock_client.search_issues.call_args[0][0]
+        assert "migration" in jql_arg
+        assert "multicast" in jql_arg
+
+    def test_filters_short_keywords(self):
+        from unittest.mock import MagicMock
+        from mcpserver.jira.client import (
+            find_broad_matching_stories,
+        )
+
+        mock_client = MagicMock()
+        mock_client.search_issues.return_value = []
+
+        cfg = {"jira": {"default_project": "CNV"}}
+        results = find_broad_matching_stories(
+            mock_client, cfg, "CNV-50",
+            ["vm", "cpu", "gpu"],
+        )
+        assert results == []
+        mock_client.search_issues.assert_not_called()
+
+    def test_skips_source_epic_key(self):
+        from unittest.mock import MagicMock
+        from mcpserver.jira.client import (
+            find_broad_matching_stories,
+        )
+
+        mock_client = MagicMock()
+        mock_issue_self = MagicMock()
+        mock_issue_self.key = "CNV-50"
+        mock_issue_self.fields.summary = "Source epic"
+        mock_issue_other = MagicMock()
+        mock_issue_other.key = "CNV-100"
+        mock_issue_other.fields.summary = "Other story"
+        mock_client.search_issues.return_value = [
+            mock_issue_self, mock_issue_other,
+        ]
+
+        cfg = {"jira": {"default_project": "CNV"}}
+        results = find_broad_matching_stories(
+            mock_client, cfg, "CNV-50",
+            ["migration"],
+        )
+        assert len(results) == 1
+        assert results[0]["key"] == "CNV-100"
+
+    def test_caps_keywords_at_five(self):
+        from unittest.mock import MagicMock
+        from mcpserver.jira.client import (
+            find_broad_matching_stories,
+        )
+
+        mock_client = MagicMock()
+        mock_client.search_issues.return_value = []
+
+        cfg = {"jira": {"default_project": "CNV"}}
+        keywords = [
+            "migration", "multicast", "infiniband",
+            "hotplug", "network", "storage", "backup",
+        ]
+        find_broad_matching_stories(
+            mock_client, cfg, "CNV-50", keywords,
+        )
+
+        jql_arg = mock_client.search_issues.call_args[0][0]
+        assert jql_arg.count('summary ~') == 5
+
+    def test_handles_jira_error_gracefully(self):
+        from unittest.mock import MagicMock
+        from mcpserver.jira.client import (
+            find_broad_matching_stories,
+        )
+
+        mock_client = MagicMock()
+        mock_client.search_issues.side_effect = Exception(
+            "Jira unavailable"
+        )
+
+        cfg = {"jira": {"default_project": "CNV"}}
+        results = find_broad_matching_stories(
+            mock_client, cfg, "CNV-50",
+            ["migration"],
+        )
+        assert results == []
 
 
 class TestFingerprintFormat:

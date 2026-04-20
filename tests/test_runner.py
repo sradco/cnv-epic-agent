@@ -290,7 +290,7 @@ class TestRunnerDryRun:
             use_llm=True,
         )
 
-        assert "SKIP (dup)" in report
+        assert "SKIP (dup of" in report
         assert "1 skipped" in report
 
 
@@ -383,7 +383,7 @@ class TestChildrenCrossCheck:
             use_llm=True,
         )
 
-        assert "SKIP (dup)" in report
+        assert "SKIP (dup of" in report
         assert "kubevirt_vmi_gpu_info" in report
         assert "WOULD CREATE" in report
         assert "GPU alert rule" in report
@@ -468,7 +468,7 @@ class TestChildrenCrossCheck:
             use_llm=True,
         )
 
-        assert "SKIP (dup)" not in report
+        assert "SKIP (dup of" not in report
         assert "WOULD CREATE" in report
         assert "networking degradation" in report
 

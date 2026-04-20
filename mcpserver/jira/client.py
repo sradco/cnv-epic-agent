@@ -357,6 +357,58 @@ def find_existing_obs_stories(
     return existing
 
 
+def find_broad_matching_stories(
+    client: JIRA,
+    cfg: dict[str, Any],
+    source_epic_key: str,
+    keywords: list[str],
+) -> list[dict[str, Any]]:
+    """Search the project for open stories matching domain keywords.
+
+    Catches duplicates that live under unrelated epics or in
+    previous-version observability epics.  Returns entries tagged
+    with ``"_from_broad_search": True`` so the dedup logic limits
+    itself to exact-summary and containment strategies.
+    """
+    project = cfg.get("jira", {}).get("default_project", "CNV")
+
+    usable = [kw for kw in keywords if len(kw) >= 5][:5]
+    if not usable:
+        return []
+
+    keyword_clause = " OR ".join(
+        f'summary ~ "{kw}"' for kw in usable
+    )
+    jql = (
+        f"project = {project} "
+        f"AND type = Story "
+        f"AND status not in (Closed, Done, Verified) "
+        f"AND ({keyword_clause})"
+    )
+
+    results: list[dict[str, Any]] = []
+    try:
+        issues = client.search_issues(jql, maxResults=50)
+        for issue in issues:
+            if issue.key == source_epic_key:
+                continue
+            summary = str(
+                getattr(issue.fields, "summary", "") or ""
+            )
+            results.append({
+                "key": issue.key,
+                "summary": summary,
+                "_from_broad_search": True,
+            })
+    except Exception:
+        logger.warning(
+            "JQL query failed (broad search): %s",
+            jql, exc_info=True,
+        )
+
+    return results
+
+
 def _extract_source_epic(story: dict[str, Any]) -> str | None:
     """Extract source epic key from description fingerprint line."""
     desc = story.get("description", "")
@@ -386,8 +438,12 @@ def is_duplicate_story(
     story_summary: str,
     source_epic_key: str,
     existing: list[dict[str, Any]],
-) -> bool:
+) -> str | None:
     """Check if a story is a duplicate using multiple strategies.
+
+    Returns the matching issue key on duplicate, or ``None``.
+    The return value is truthy/falsy so callers that treat it
+    as a bool continue to work unchanged.
 
     Matching strategies (in order):
     1. Fingerprint: source_epic + summary_hash from description.
@@ -403,6 +459,10 @@ def is_duplicate_story(
        equal strings are caught by strategy 2).
        Disabled for source-epic children (``_from_children``)
        because QE/docs stories naturally reuse child phrasing.
+
+    For broad-search entries (``_from_broad_search``), only
+    strategies 2 and 4 apply — fingerprint and key-reference
+    are irrelevant for issues found via keyword search.
     """
     new_hash = _hash_summary(story_summary)
     norm_new = _normalize_summary(story_summary)
@@ -410,31 +470,37 @@ def is_duplicate_story(
     is_qe_or_docs = bool(_QE_DOC_PREFIX_RE.match(story_summary))
 
     for e in existing:
-        e_hash = _extract_summary_hash(e)
-        e_source = _extract_source_epic(e)
-        if e_source == source_epic_key and e_hash == new_hash:
-            return True
+        e_key = e.get("key", "")
+        from_children = e.get("_from_children", False)
+        from_broad = e.get("_from_broad_search", False)
 
         norm_existing = _normalize_summary(e.get("summary", ""))
 
+        if not from_broad:
+            e_hash = _extract_summary_hash(e)
+            e_source = _extract_source_epic(e)
+            if e_source == source_epic_key and e_hash == new_hash:
+                return e_key or "unknown"
+
         if norm_existing == norm_new:
-            return True
+            return e_key or "unknown"
 
-        from_children = e.get("_from_children", False)
-
-        e_key = e.get("key", "")
-        if e_key and e_key in embedded_keys:
-            if not (from_children and is_qe_or_docs):
-                return True
+        if not from_broad and not from_children:
+            if e_key and e_key in embedded_keys:
+                return e_key
+        elif not from_broad and from_children:
+            if e_key and e_key in embedded_keys:
+                if not is_qe_or_docs:
+                    return e_key
 
         if from_children:
             continue
 
         if norm_new != norm_existing and len(norm_existing) >= 20:
             if norm_existing in norm_new or norm_new in norm_existing:
-                return True
+                return e_key or "unknown"
 
-    return False
+    return None
 
 
 @_retry_on_jira_error

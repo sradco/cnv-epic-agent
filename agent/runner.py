@@ -34,6 +34,7 @@ from mcpserver.jira.client import (
     create_obs_story,
     fetch_epic_with_children,
     fetch_unsized_stories,
+    find_broad_matching_stories,
     find_existing_obs_stories,
     find_or_create_obs_epic,
     format_jira_version,
@@ -184,11 +185,14 @@ def _dedup_and_create(
             )
             break
 
-        if is_duplicate_story(
+        dup_key = is_duplicate_story(
             story.summary, epic_key, existing,
-        ):
+        )
+        if dup_key:
             ctx.counters.skipped += 1
-            lines.append(f"- SKIP (dup): {story.summary}")
+            lines.append(
+                f"- SKIP (dup of {dup_key}): {story.summary}"
+            )
             continue
 
         if ctx.apply and ctx.version:
@@ -659,6 +663,14 @@ def run(
         existing.extend(
             _children_as_dedup_entries(children)
         )
+
+        domain_keywords = result.get("domain_keywords", [])
+        if domain_keywords:
+            existing.extend(
+                find_broad_matching_stories(
+                    client, cfg, epic_key, domain_keywords,
+                )
+            )
 
         story_lines = _dedup_and_create(
             stories, epic_key, obs_epic, existing, ctx,
