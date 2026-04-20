@@ -453,8 +453,8 @@ class TestIsDuplicateStory:
             existing,
         ) is False
 
-    def test_child_key_reference_not_dup(self):
-        """Proposed story embeds a child key — not a dup for children."""
+    def test_child_key_reference_is_dup(self):
+        """Proposed story embeds a child key — it's about that child's work."""
         existing = [
             {
                 "key": "CNV-84168",
@@ -469,10 +469,34 @@ class TestIsDuplicateStory:
             "alerts to use 'running' status for CNV-84168",
             "CNV-81938",
             existing,
-        ) is False
+        ) is True
 
     def test_child_containment_not_dup(self):
-        """Child summary contained in proposed — not a dup for children."""
+        """Child summary contained in proposed but no key ref — not a dup.
+
+        Containment is disabled for children so that a proposed story
+        whose wording merely overlaps a child's summary is not falsely
+        flagged.  The proposed summary here is different enough that
+        exact-match (strategy 2) does not trigger.
+        """
+        existing = [
+            {
+                "key": "CNV-80580",
+                "summary": "Add metric for VMI controller sync count",
+                "labels": [],
+                "description": "",
+                "_from_children": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][metrics] Implement Prometheus "
+            "metric for VMI controller sync count with labels",
+            "CNV-81938",
+            existing,
+        ) is False
+
+    def test_child_key_ref_plus_containment_is_dup(self):
+        """Child summary + key ref in proposed — definitely a dup."""
         existing = [
             {
                 "key": "CNV-80580",
@@ -485,6 +509,42 @@ class TestIsDuplicateStory:
         assert is_duplicate_story(
             "[Observability][metrics] Add metric for VMI "
             "controller sync count for CNV-80580",
+            "CNV-81938",
+            existing,
+        ) is True
+
+    def test_child_qe_story_referencing_key_not_dup(self):
+        """QE story referencing a child key is complementary, not a dup."""
+        existing = [
+            {
+                "key": "CNV-80580",
+                "summary": "Add metric for VMI controller sync count",
+                "labels": [],
+                "description": "",
+                "_from_children": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[QE] Verify VMI controller sync count metric "
+            "(CNV-80580)",
+            "CNV-81938",
+            existing,
+        ) is False
+
+    def test_child_docs_story_referencing_key_not_dup(self):
+        """Docs story referencing a child key is complementary, not a dup."""
+        existing = [
+            {
+                "key": "CNV-84168",
+                "summary": "Modify LowVirtCount alerts",
+                "labels": [],
+                "description": "",
+                "_from_children": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Docs] Update runbook for modified LowVirtCount "
+            "alerts (CNV-84168)",
             "CNV-81938",
             existing,
         ) is False
