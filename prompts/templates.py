@@ -134,6 +134,19 @@ SYSTEM_PROMPT = """\
 You are an SRE lead for KubeVirt/CNV advising cluster operators \
 who run production OpenShift Virtualization environments.
 
+Domain context — Jira component to source repository mapping:
+- "CNV Virtualization" → kubevirt/kubevirt
+- "CNV Install, Upgrade and Operators" → \
+kubevirt/hyperconverged-cluster-operator, kubevirt/monitoring, \
+and the observability layer of the other repositories
+- "CNV Infrastructure" → kubevirt/hostpath-provisioner, \
+kubevirt/hostpath-provisioner-operator
+- "CNV Storage" → kubevirt/containerized-data-importer
+
+Use the epic's component and associated repositories to focus \
+your analysis on the relevant codebase. The prompt will include \
+the specific component and repos for each epic.
+
 Think from the perspective of real customers operating clusters \
 at scale. Every metric, alert, and dashboard you propose must \
 serve at least one of these real-world use cases:
@@ -247,7 +260,7 @@ without data loss or broken panels.
 Do NOT create a single monolithic QE story. Reference the \
 specific observability child story keys each QE story validates.
 - Story points: Fibonacci (1,2,3,5,8,13) by complexity. No SP \
-on bugs.
+on bugs or closed stories.
 - Include acceptance criteria as a checklist in every story \
 description.
 - Only produce stories for enabled categories. Skip docs/QE \
@@ -282,6 +295,19 @@ def build_story_composition_prompt(
         f"# Epic: {analysis['epic_key']} — {analysis['epic_summary']}"
     )
     parts.append("")
+
+    epic_components = analysis.get("epic_components", [])
+    if epic_components:
+        parts.append(f"## Epic components: {', '.join(epic_components)}")
+        parts.append("")
+
+    associated_repos = analysis.get("associated_repos", [])
+    if associated_repos:
+        parts.append(
+            "## Associated source repositories: "
+            + ", ".join(associated_repos)
+        )
+        parts.append("")
 
     epic_labels = analysis.get("epic_labels", [])
     if epic_labels:
@@ -396,7 +422,7 @@ implementation complexity:
 - 8 = very large (major feature, multi-sprint)
 - 13 = epic-sized (should probably be split)
 
-Do NOT estimate bugs — only stories.
+Do NOT estimate bugs or closed stories — only open stories.
 Base your estimate on the story summary and description, considering
 the epic context provided.
 
@@ -451,5 +477,97 @@ def build_sp_estimation_prompt(
         parts.append("```json")
         parts.append(json.dumps(SP_ESTIMATION_JSON_SCHEMA, indent=2))
         parts.append("```")
+
+    return "\n".join(parts)
+
+
+CLARITY_CHECK_SYSTEM_PROMPT = """\
+You are an engineering lead reviewing Jira epics before sprint \
+planning. Your job is to decide whether an epic has enough detail \
+for a team to start breaking it into implementation stories.
+
+An epic is **clear** when:
+- The goal / desired outcome is stated
+- The scope is bounded (you can tell what is and isn't included)
+- There is enough context (description or child stories) to \
+understand what needs to be built or changed
+
+An epic **needs grooming** when:
+- The summary is vague and the description is missing or generic \
+(e.g. "Improve observability" with no specifics)
+- You cannot determine what components, repos, or subsystems \
+are involved
+- There are no child stories to clarify scope, and the \
+description does not compensate
+
+Be pragmatic: a short but specific description is fine. A long \
+but hand-wavy description is not.
+
+Return JSON matching the provided schema.
+"""
+
+
+CLARITY_CHECK_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "verdict": {
+            "type": "string",
+            "enum": ["clear", "needs_grooming"],
+        },
+        "reason": {
+            "type": "string",
+            "description": (
+                "One or two sentences explaining why the epic is "
+                "clear or what detail is missing."
+            ),
+        },
+    },
+    "required": ["verdict", "reason"],
+    "additionalProperties": False,
+}
+
+
+def build_clarity_check_prompt(
+    epic_key: str,
+    epic_summary: str,
+    epic_description: str,
+    children: list[dict[str, str]],
+) -> str:
+    """Build a prompt asking the LLM whether an epic is clear."""
+    parts: list[str] = []
+
+    parts.append(f"# Epic: {epic_key} — {epic_summary}")
+    parts.append("")
+
+    if epic_description:
+        parts.append("## Description")
+        parts.append("---BEGIN EPIC DESCRIPTION---")
+        parts.append(strip_jira_markup(epic_description)[:2000])
+        parts.append("---END EPIC DESCRIPTION---")
+        parts.append("")
+    else:
+        parts.append("## Description")
+        parts.append("*(no description)*")
+        parts.append("")
+
+    if children:
+        parts.append(f"## Child issues ({len(children)})")
+        for c in children[:20]:
+            parts.append(f"- **{c['key']}**: {c['summary']}")
+            if c.get("description"):
+                desc = strip_jira_markup(c["description"])[:200]
+                parts.append(f"  {desc}")
+        if len(children) > 20:
+            parts.append(f"  *(... {len(children) - 20} more)*")
+        parts.append("")
+    else:
+        parts.append("## Child issues")
+        parts.append("*(none)*")
+        parts.append("")
+
+    parts.append(
+        "Is this epic clear enough for a team to start creating "
+        "implementation stories? Return your verdict as JSON."
+    )
 
     return "\n".join(parts)

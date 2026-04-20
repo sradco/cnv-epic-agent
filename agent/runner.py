@@ -22,9 +22,15 @@ import yaml
 from agent.analyzer.analysis import build_analysis_result
 from agent.analyzer.formatter import build_subtask_payloads
 from agent.planner.llm import LLMError
-from agent.planner.planner import compose_stories, estimate_story_points
+from agent.planner.planner import (
+    check_epic_clarity,
+    compose_stories,
+    estimate_story_points,
+)
 from mcpserver.github.discover import build_all_inventories
 from mcpserver.jira.client import (
+    add_grooming_comment,
+    add_grooming_label,
     create_obs_story,
     fetch_epic_with_children,
     fetch_unsized_stories,
@@ -32,6 +38,7 @@ from mcpserver.jira.client import (
     find_or_create_obs_epic,
     get_jira_client,
     is_duplicate_story,
+    needs_grooming,
     search_epics,
     update_story_points,
 )
@@ -455,6 +462,86 @@ def run(
             report_lines.append("")
             continue
 
+        grooming_cfg = cfg.get("grooming", {})
+        grooming_label = grooming_cfg.get("label", "grooming")
+        grooming_reason = ""
+        flagged = False
+
+        if needs_grooming(epic, children, cfg):
+            grooming_reason = (
+                "Epic lacks sufficient detail (short description "
+                "and no child stories)."
+            )
+            flagged = True
+
+        if not flagged and use_llm and grooming_cfg.get(
+            "llm_clarity_check", False,
+        ):
+            try:
+                children_data = [
+                    {
+                        "key": c.key,
+                        "summary": c.summary,
+                        "description": c.description,
+                    }
+                    for c in children
+                ]
+                clarity = check_epic_clarity(
+                    epic_key=epic_key,
+                    epic_summary=epic.summary,
+                    epic_description=epic.description or "",
+                    children=children_data,
+                    model=model,
+                    temperature=temperature,
+                )
+                if clarity["verdict"] == "needs_grooming":
+                    grooming_reason = clarity["reason"]
+                    flagged = True
+            except Exception:
+                logger.warning(
+                    "[%s] LLM clarity check failed for %s, "
+                    "proceeding with analysis",
+                    run_id, epic_key, exc_info=True,
+                )
+
+        if flagged:
+            report_lines.append(
+                f"## {epic_key} — NEEDS GROOMING"
+            )
+            report_lines.append(grooming_reason)
+            comment_text = (
+                f"[Epic Agent] {grooming_reason}\n\n"
+                f"Please add more detail and remove the "
+                f"*{grooming_label}* label to re-enable processing."
+            )
+            if apply:
+                try:
+                    add_grooming_label(client, cfg, epic_key)
+                    add_grooming_comment(
+                        client, cfg, epic_key,
+                        comment_override=comment_text,
+                    )
+                    report_lines.append(
+                        f"Added *{grooming_label}* label and "
+                        f"comment to {epic_key}."
+                    )
+                except Exception:
+                    logger.error(
+                        "[%s] Failed to label/comment %s for "
+                        "grooming",
+                        run_id, epic_key, exc_info=True,
+                    )
+                    report_lines.append(
+                        f"Failed to add grooming label/comment."
+                    )
+            else:
+                report_lines.append(
+                    f"*Would add '{grooming_label}' label and "
+                    f"grooming comment.*"
+                )
+            report_lines.append("")
+            continue
+
         result = build_analysis_result(
             epic, children, cfg, inventory=inv,
         )
@@ -471,6 +558,16 @@ def run(
             continue
 
         report_lines.append(f"## {epic_key} — {epic.summary}")
+        epic_components = result.get("epic_components", [])
+        if epic_components:
+            report_lines.append(
+                f"Components: {', '.join(epic_components)}"
+            )
+        associated_repos = result.get("associated_repos", [])
+        if associated_repos:
+            report_lines.append(
+                f"Repos: {', '.join(associated_repos)}"
+            )
         report_lines.append(
             f"Gaps: {', '.join(result.get('gaps', []))}"
         )

@@ -7,8 +7,11 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from prompts.templates import (
+    CLARITY_CHECK_JSON_SCHEMA,
+    CLARITY_CHECK_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     SP_ESTIMATION_SYSTEM_PROMPT,
+    build_clarity_check_prompt,
     build_story_composition_prompt,
     build_sp_estimation_prompt,
     strip_jira_markup,
@@ -110,6 +113,17 @@ class TestSystemPrompt:
         assert "moved or refactored" in lowered
         assert "renamed" in lowered
 
+    def test_component_repo_mapping(self):
+        assert "CNV Virtualization" in SYSTEM_PROMPT
+        assert "kubevirt/kubevirt" in SYSTEM_PROMPT
+        assert "CNV Install, Upgrade and Operators" in SYSTEM_PROMPT
+        assert "hyperconverged-cluster-operator" in SYSTEM_PROMPT
+        assert "kubevirt/monitoring" in SYSTEM_PROMPT
+        assert "CNV Infrastructure" in SYSTEM_PROMPT
+        assert "hostpath-provisioner" in SYSTEM_PROMPT
+        assert "CNV Storage" in SYSTEM_PROMPT
+        assert "containerized-data-importer" in SYSTEM_PROMPT
+
 
 class TestBuildPrompt:
     def _make_analysis(self, **overrides):
@@ -148,9 +162,39 @@ class TestBuildPrompt:
             "recommended_action": "create now",
             "apply_allowed": True,
             "would_create_count": 1,
+            "epic_components": [],
+            "associated_repos": [],
         }
         base.update(overrides)
         return base
+
+    def test_includes_epic_components(self):
+        analysis = self._make_analysis(
+            epic_components=["CNV Virtualization"],
+        )
+        prompt = build_story_composition_prompt(analysis)
+        assert "CNV Virtualization" in prompt
+        assert "Epic components:" in prompt
+
+    def test_no_components_section_when_empty(self):
+        analysis = self._make_analysis(epic_components=[])
+        prompt = build_story_composition_prompt(analysis)
+        assert "Epic components:" not in prompt
+
+    def test_includes_associated_repos(self):
+        analysis = self._make_analysis(
+            associated_repos=[
+                "https://github.com/kubevirt/kubevirt",
+            ],
+        )
+        prompt = build_story_composition_prompt(analysis)
+        assert "kubevirt/kubevirt" in prompt
+        assert "Associated source repositories:" in prompt
+
+    def test_no_repos_section_when_empty(self):
+        analysis = self._make_analysis(associated_repos=[])
+        prompt = build_story_composition_prompt(analysis)
+        assert "Associated source repositories:" not in prompt
 
     def test_includes_epic_labels(self):
         analysis = self._make_analysis(
@@ -371,6 +415,84 @@ class TestTrimExistingItems:
         assert "h2." not in prompt
         assert "*Important*" not in prompt
         assert "Important" in prompt
+
+
+class TestClarityCheckPrompt:
+    def test_system_prompt_mentions_clear_and_needs_grooming(self):
+        assert "clear" in CLARITY_CHECK_SYSTEM_PROMPT.lower()
+        assert "needs grooming" in CLARITY_CHECK_SYSTEM_PROMPT.lower()
+
+    def test_system_prompt_mentions_scope(self):
+        assert "scope" in CLARITY_CHECK_SYSTEM_PROMPT.lower()
+
+    def test_schema_has_verdict_and_reason(self):
+        props = CLARITY_CHECK_JSON_SCHEMA["properties"]
+        assert "verdict" in props
+        assert "reason" in props
+        assert props["verdict"]["enum"] == [
+            "clear", "needs_grooming",
+        ]
+
+    def test_prompt_includes_epic_info(self):
+        prompt = build_clarity_check_prompt(
+            epic_key="CNV-123",
+            epic_summary="Add GPU metrics",
+            epic_description="Expose GPU utilization metrics.",
+            children=[],
+        )
+        assert "CNV-123" in prompt
+        assert "Add GPU metrics" in prompt
+        assert "GPU utilization" in prompt
+
+    def test_prompt_shows_no_description(self):
+        prompt = build_clarity_check_prompt(
+            epic_key="CNV-124",
+            epic_summary="Vague epic",
+            epic_description="",
+            children=[],
+        )
+        assert "*(no description)*" in prompt
+
+    def test_prompt_shows_no_children(self):
+        prompt = build_clarity_check_prompt(
+            epic_key="CNV-125",
+            epic_summary="Test",
+            epic_description="Some desc",
+            children=[],
+        )
+        assert "*(none)*" in prompt
+
+    def test_prompt_includes_children(self):
+        children = [
+            {
+                "key": "CNV-126",
+                "summary": "Add vCPU metric",
+                "description": "Expose vCPU count",
+            },
+        ]
+        prompt = build_clarity_check_prompt(
+            epic_key="CNV-125",
+            epic_summary="Test",
+            epic_description="Desc",
+            children=children,
+        )
+        assert "CNV-126" in prompt
+        assert "Add vCPU metric" in prompt
+        assert "Child issues (1)" in prompt
+
+    def test_prompt_truncates_many_children(self):
+        children = [
+            {"key": f"CNV-{i}", "summary": f"Story {i}",
+             "description": ""}
+            for i in range(25)
+        ]
+        prompt = build_clarity_check_prompt(
+            epic_key="CNV-100",
+            epic_summary="Big epic",
+            epic_description="Lots of work",
+            children=children,
+        )
+        assert "5 more" in prompt
 
 
 if __name__ == "__main__":

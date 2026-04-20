@@ -180,6 +180,65 @@ def fetch_epic_with_children(
     return epic, children
 
 
+def needs_grooming(
+    epic: IssueDoc,
+    children: list[IssueDoc],
+    cfg: dict[str, Any],
+) -> bool:
+    """Return True if the epic lacks enough detail for analysis."""
+    grooming_cfg = cfg.get("grooming", {})
+    min_desc = int(grooming_cfg.get("min_description_length", 50))
+    min_children = int(grooming_cfg.get("min_children", 1))
+
+    desc_len = len((epic.description or "").strip())
+    has_enough_desc = desc_len >= min_desc
+    has_enough_children = len(children) >= min_children
+
+    return not (has_enough_desc or has_enough_children)
+
+
+@_retry_on_jira_error
+def add_grooming_label(
+    client: JIRA,
+    cfg: dict[str, Any],
+    epic_key: str,
+) -> None:
+    """Add the grooming label to an epic if not already present."""
+    grooming_cfg = cfg.get("grooming", {})
+    label = grooming_cfg.get("label", "grooming")
+    issue = client.issue(epic_key)
+    existing = getattr(issue.fields, "labels", []) or []
+    if label not in existing:
+        issue.update(fields={"labels": existing + [label]})
+        logger.info("Added '%s' label to %s", label, epic_key)
+
+
+@_retry_on_jira_error
+def add_grooming_comment(
+    client: JIRA,
+    cfg: dict[str, Any],
+    epic_key: str,
+    comment_override: str = "",
+) -> None:
+    """Post a comment asking for more detail on the epic.
+
+    If *comment_override* is provided (e.g. from an LLM clarity
+    check), it is used instead of the config default.
+    """
+    if comment_override:
+        comment_text = comment_override
+    else:
+        grooming_cfg = cfg.get("grooming", {})
+        comment_text = grooming_cfg.get(
+            "comment",
+            "[Epic Agent] This epic does not have enough detail "
+            "for story generation. Please add child stories and "
+            "a more detailed description.",
+        )
+    client.add_comment(epic_key, comment_text)
+    logger.info("Added grooming comment to %s", epic_key)
+
+
 def _normalize_summary(summary: str) -> str:
     """Normalize a summary for dedup comparison.
 
@@ -400,6 +459,10 @@ def find_or_create_obs_epic(
 
 _SP_UNSET_VALUES = {0, 0.42}
 
+_CLOSED_STATUSES = frozenset({
+    "closed", "done", "resolved", "verified",
+})
+
 
 def _should_set_story_points(
     current_value: float | int | None,
@@ -570,6 +633,17 @@ def update_story_points(
     )
 
     issue = client.issue(issue_key)
+
+    status_name = str(
+        getattr(getattr(issue.fields, "status", None), "name", "")
+    ).lower()
+    if status_name in _CLOSED_STATUSES:
+        logger.info(
+            "Skipping SP update for %s — status is '%s'",
+            issue_key, status_name,
+        )
+        return False
+
     current = getattr(issue.fields, sp_field, None)
 
     if not _should_set_story_points(current, story_points):
@@ -594,7 +668,6 @@ def update_story_points(
     return True
 
 
-@_retry_on_jira_error
 def fetch_unsized_stories(
     client: JIRA,
     cfg: dict[str, Any],
@@ -603,7 +676,7 @@ def fetch_unsized_stories(
     """Find Story-type children of an epic that have no story points set.
 
     Returns raw Jira issue objects whose SP is None, 0, or 0.42.
-    Excludes Bugs (bugs don't get story points).
+    Excludes Bugs (bugs don't get story points) and closed stories.
     """
     creation_cfg = cfg.get("creation", {})
     sp_field = creation_cfg.get(
@@ -614,7 +687,8 @@ def fetch_unsized_stories(
 
     jql = (
         f'project = {proj} AND "Epic Link" = {epic_key} '
-        f'AND type = Story'
+        f'AND type = Story '
+        f'AND status NOT IN (Closed, Done, Resolved, Verified)'
     )
     issues = _search_all(client, jql)
 

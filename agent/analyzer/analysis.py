@@ -672,11 +672,19 @@ def build_analysis_result(
         for c in related_issues
     ]
 
+    epic_components = epic.components or []
+    component_repo_map = cfg.get("discovery", {}).get("component_repo_map", {})
+    associated_repos: list[str] = []
+    for comp in epic_components:
+        associated_repos.extend(component_repo_map.get(comp, []))
+
     return {
         "epic_key": epic.key,
         "epic_summary": epic.summary,
         "epic_description": epic.description,
         "epic_labels": epic.labels or [],
+        "epic_components": epic_components,
+        "associated_repos": associated_repos,
         "child_issues": child_issues_data,
         "domain_keywords": domain_keywords,
         "need_state": need["need_state"],

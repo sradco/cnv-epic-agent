@@ -500,6 +500,46 @@ class TestAnalysisDataOutput:
         assert "child_issues" in result
         assert "domain_keywords" in result
 
+    def test_includes_epic_components_and_associated_repos(self):
+        epic = IssueDoc(
+            key="CNV-100",
+            summary="Test epic",
+            description="desc",
+            components=["CNV Virtualization"],
+        )
+        cfg = _load_config()
+        result = build_analysis_result(epic, [], cfg)
+
+        assert result["epic_components"] == ["CNV Virtualization"]
+        assert "https://github.com/kubevirt/kubevirt" in result[
+            "associated_repos"
+        ]
+
+    def test_unknown_component_yields_empty_repos(self):
+        epic = IssueDoc(
+            key="CNV-101",
+            summary="Test epic",
+            description="desc",
+            components=["Unknown Component"],
+        )
+        cfg = _load_config()
+        result = build_analysis_result(epic, [], cfg)
+
+        assert result["epic_components"] == ["Unknown Component"]
+        assert result["associated_repos"] == []
+
+    def test_no_components_yields_empty(self):
+        epic = IssueDoc(
+            key="CNV-102",
+            summary="Test epic",
+            description="desc",
+        )
+        cfg = _load_config()
+        result = build_analysis_result(epic, [], cfg)
+
+        assert result["epic_components"] == []
+        assert result["associated_repos"] == []
+
 
 class TestFeatureTypeDetectionTightened:
     """Verify that single-word signals only match the epic, not children."""

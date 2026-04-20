@@ -15,7 +15,9 @@ from mcpserver.jira.client import (
     _should_set_story_points,
     build_epic_jql,
     is_duplicate_story,
+    needs_grooming,
 )
+from schemas.issue_doc import IssueDoc
 from prompts.templates import (
     build_story_composition_prompt,
     build_sp_estimation_prompt,
@@ -736,6 +738,58 @@ class TestBuildEpicJql:
         assert "fixVersion" not in jql
         assert "Target Version" not in jql
         assert "labels" not in jql
+
+
+class TestNeedsGrooming:
+    """Verify that needs_grooming flags epics with insufficient detail."""
+
+    _CFG = {
+        "grooming": {
+            "label": "grooming",
+            "min_description_length": 50,
+            "min_children": 1,
+        },
+    }
+
+    def test_short_desc_no_children_needs_grooming(self):
+        epic = IssueDoc(
+            key="CNV-1", summary="Test", description="Short",
+        )
+        assert needs_grooming(epic, [], self._CFG) is True
+
+    def test_long_desc_no_children_ok(self):
+        epic = IssueDoc(
+            key="CNV-2", summary="Test",
+            description="A" * 60,
+        )
+        assert needs_grooming(epic, [], self._CFG) is False
+
+    def test_short_desc_with_children_ok(self):
+        epic = IssueDoc(
+            key="CNV-3", summary="Test", description="Short",
+        )
+        child = IssueDoc(
+            key="CNV-4", summary="Child", description="child desc",
+        )
+        assert needs_grooming(epic, [child], self._CFG) is False
+
+    def test_empty_desc_no_children_needs_grooming(self):
+        epic = IssueDoc(
+            key="CNV-5", summary="Test", description="",
+        )
+        assert needs_grooming(epic, [], self._CFG) is True
+
+    def test_none_desc_no_children_needs_grooming(self):
+        epic = IssueDoc(
+            key="CNV-6", summary="Test", description=None,
+        )
+        assert needs_grooming(epic, [], self._CFG) is True
+
+    def test_defaults_when_no_grooming_config(self):
+        epic = IssueDoc(
+            key="CNV-7", summary="Test", description="Short",
+        )
+        assert needs_grooming(epic, [], {}) is True
 
 
 if __name__ == "__main__":

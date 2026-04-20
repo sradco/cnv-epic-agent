@@ -11,8 +11,11 @@ import logging
 from typing import Any
 
 from prompts.templates import (
+    CLARITY_CHECK_JSON_SCHEMA,
+    CLARITY_CHECK_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     SP_ESTIMATION_SYSTEM_PROMPT,
+    build_clarity_check_prompt,
     build_story_composition_prompt,
     build_sp_estimation_prompt,
 )
@@ -223,3 +226,60 @@ def estimate_story_points(
 
     logger.info("Estimated SP for %d stories", len(result))
     return result
+
+
+def check_epic_clarity(
+    epic_key: str,
+    epic_summary: str,
+    epic_description: str,
+    children: list[dict[str, str]],
+    model: str = "gpt-4o",
+    temperature: float = 0.2,
+) -> dict[str, str]:
+    """Ask the LLM whether an epic is clear enough for story creation.
+
+    Returns {"verdict": "clear"|"needs_grooming", "reason": "..."}.
+    On LLM failure, returns needs_grooming with an error note so the
+    epic is conservatively flagged rather than processed blind.
+    """
+    user_prompt = build_clarity_check_prompt(
+        epic_key=epic_key,
+        epic_summary=epic_summary,
+        epic_description=epic_description,
+        children=children,
+    )
+
+    messages = [
+        {"role": "system", "content": CLARITY_CHECK_SYSTEM_PROMPT},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "clarity_check",
+            "schema": CLARITY_CHECK_JSON_SCHEMA,
+        },
+    }
+
+    logger.info(
+        "Checking clarity for %s (model: %s)", epic_key, model,
+    )
+
+    raw = complete(
+        model=model,
+        messages=messages,
+        response_format=response_format,
+        temperature=temperature,
+    )
+
+    parsed = parse_json_response(raw)
+    verdict = parsed.get("verdict", "needs_grooming")
+    reason = parsed.get("reason", "")
+
+    logger.info(
+        "Clarity check for %s: %s — %s",
+        epic_key, verdict, reason,
+    )
+
+    return {"verdict": verdict, "reason": reason}

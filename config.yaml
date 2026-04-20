@@ -13,6 +13,17 @@ creation:
   epic_summary_format: "[Observability] CNV {version} — Auto-generated observability stories"
   story_points_field: "customfield_10028"
 
+grooming:
+  label: "grooming"
+  min_description_length: 50
+  min_children: 1
+  llm_clarity_check: true
+  comment: |
+    [Epic Agent] This epic does not have enough detail for
+    story generation. Please add child stories and a more
+    detailed description so the scope is clear, then remove
+    the *grooming* label to re-enable processing.
+
 discovery:
   repos:
     - "https://github.com/kubevirt/application-aware-quota"
@@ -22,8 +33,21 @@ discovery:
     - "https://github.com/kubevirt/hostpath-provisioner-operator"
     - "https://github.com/kubevirt/hyperconverged-cluster-operator"
     - "https://github.com/kubevirt/kubevirt"
+    - "https://github.com/kubevirt/monitoring"
     - "https://github.com/kubevirt/ssp-operator"
     - "https://github.com/stolostron/multicluster-observability-addon"
+
+  component_repo_map:
+    "CNV Virtualization":
+      - "https://github.com/kubevirt/kubevirt"
+    "CNV Install, Upgrade and Operators":
+      - "https://github.com/kubevirt/hyperconverged-cluster-operator"
+      - "https://github.com/kubevirt/monitoring"
+    "CNV Infrastructure":
+      - "https://github.com/kubevirt/hostpath-provisioner"
+      - "https://github.com/kubevirt/hostpath-provisioner-operator"
+    "CNV Storage":
+      - "https://github.com/kubevirt/containerized-data-importer"
 
 telemetry:
   cmo_allowlist_url: "https://raw.githubusercontent.com/openshift/cluster-monitoring-operator/master/manifests/0000_50_cluster-monitoring-operator_04-config.yaml"
@@ -328,7 +352,7 @@ agent:
     guidance: >-
       Estimate based on implementation complexity: 1=trivial,
       2=small, 3=medium, 5=large, 8=very large, 13=epic-sized.
-      Do NOT assign story points to bugs — only to stories.
+      Do NOT assign story points to bugs or closed stories.
       Domain-specific sizing hints for KubeVirt/CNV:
       - VEP (Virtio Enhancement Proposal) review/merge: 5-8
         (extended design discussions, multiple revision rounds,

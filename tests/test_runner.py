@@ -12,7 +12,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from agent.planner.llm import LLMError
 
 
-def _fake_jira_issue(key, summary, description="", issue_type="Epic"):
+def _fake_jira_issue(
+    key, summary, description="", issue_type="Epic", labels=None,
+    components=None,
+):
     issue = MagicMock()
     issue.key = key
     issue.fields = MagicMock()
@@ -21,7 +24,8 @@ def _fake_jira_issue(key, summary, description="", issue_type="Epic"):
     issuetype = MagicMock()
     issuetype.name = issue_type
     issue.fields.issuetype = issuetype
-    issue.fields.labels = []
+    issue.fields.labels = labels or []
+    issue.fields.components = components or []
     return issue
 
 
@@ -75,18 +79,27 @@ class TestRunnerDryRun:
         mock_config.return_value = _minimal_cfg()
         mock_jira.return_value = MagicMock()
 
-        epic = _fake_jira_issue("CNV-100", "Test Epic")
+        _LONG_DESC = (
+            "This epic covers adding new metrics for VM migration "
+            "tracking across the cluster for capacity planning."
+        )
+        epic = _fake_jira_issue(
+            "CNV-100", "Test Epic", description=_LONG_DESC,
+        )
         mock_jira.return_value.issue.return_value = epic
 
         from schemas.issue_doc import IssueDoc
         mock_fetch.return_value = (
-            IssueDoc(key="CNV-100", summary="Test Epic", description="Desc"),
+            IssueDoc(
+                key="CNV-100", summary="Test Epic",
+                description=_LONG_DESC,
+            ),
             [],
         )
         mock_analysis.return_value = {
             "epic_key": "CNV-100",
             "epic_summary": "Test Epic",
-            "epic_description": "Desc",
+            "epic_description": _LONG_DESC,
             "child_issues": [],
             "domain_keywords": [],
             "need_state": "needed",
@@ -147,20 +160,27 @@ class TestRunnerDryRun:
         from agent.runner import run
         from schemas.issue_doc import IssueDoc
 
+        _LONG_DESC = (
+            "This epic covers migrating observability components "
+            "to a new architecture for better scalability."
+        )
         mock_config.return_value = _minimal_cfg()
         mock_jira.return_value = MagicMock()
         mock_jira.return_value.issue.return_value = _fake_jira_issue(
-            "CNV-200", "Failing Epic",
+            "CNV-200", "Failing Epic", description=_LONG_DESC,
         )
 
         mock_fetch.return_value = (
-            IssueDoc(key="CNV-200", summary="Failing Epic", description=""),
+            IssueDoc(
+                key="CNV-200", summary="Failing Epic",
+                description=_LONG_DESC,
+            ),
             [],
         )
         mock_analysis.return_value = {
             "epic_key": "CNV-200",
             "epic_summary": "Failing Epic",
-            "epic_description": "",
+            "epic_description": _LONG_DESC,
             "child_issues": [],
             "domain_keywords": [],
             "need_state": "needed",
@@ -208,21 +228,28 @@ class TestRunnerDryRun:
         from agent.runner import run
         from schemas.stories import StoryPayload
 
+        _LONG_DESC = (
+            "This epic covers adding new deduplication logic for "
+            "observability stories to prevent duplicate Jira issues."
+        )
         mock_config.return_value = _minimal_cfg()
         mock_jira.return_value = MagicMock()
         mock_jira.return_value.issue.return_value = _fake_jira_issue(
-            "CNV-300", "Dedup Epic",
+            "CNV-300", "Dedup Epic", description=_LONG_DESC,
         )
 
         from schemas.issue_doc import IssueDoc
         mock_fetch.return_value = (
-            IssueDoc(key="CNV-300", summary="Dedup Epic", description=""),
+            IssueDoc(
+                key="CNV-300", summary="Dedup Epic",
+                description=_LONG_DESC,
+            ),
             [],
         )
         mock_analysis.return_value = {
             "epic_key": "CNV-300",
             "epic_summary": "Dedup Epic",
-            "epic_description": "",
+            "epic_description": _LONG_DESC,
             "child_issues": [],
             "domain_keywords": [],
             "need_state": "needed",
@@ -509,21 +536,27 @@ class TestLabelBasedCategoryFiltering:
         mock_config.return_value = cfg
         mock_jira.return_value = MagicMock()
 
-        epic = _fake_jira_issue("CNV-200", "Internal refactor")
+        _LONG_DESC = (
+            "Move observability code between repos without "
+            "changing user-facing metrics or alert behavior."
+        )
+        epic = _fake_jira_issue(
+            "CNV-200", "Internal refactor", description=_LONG_DESC,
+        )
         mock_jira.return_value.issue.return_value = epic
 
         from schemas.issue_doc import IssueDoc
         mock_fetch.return_value = (
             IssueDoc(
                 key="CNV-200", summary="Internal refactor",
-                description="Move code", labels=["no-doc"],
+                description=_LONG_DESC, labels=["no-doc"],
             ),
             [],
         )
         mock_analysis.return_value = {
             "epic_key": "CNV-200",
             "epic_summary": "Internal refactor",
-            "epic_description": "Move code",
+            "epic_description": _LONG_DESC,
             "epic_labels": ["no-doc"],
             "child_issues": [],
             "domain_keywords": [],
@@ -564,6 +597,304 @@ class TestLabelBasedCategoryFiltering:
         assert "docs" not in categories_passed
         assert "metrics" in categories_passed
         assert "qe" in categories_passed
+
+
+class TestGroomingDetection:
+    """Verify epics with insufficient detail are flagged for grooming."""
+
+    @patch("agent.runner.build_all_inventories")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.search_epics")
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner._validate_config")
+    @patch("agent.runner.yaml")
+    def test_dry_run_reports_needs_grooming(
+        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        mock_client, mock_inv,
+    ):
+        from agent.runner import run
+
+        cfg = _minimal_cfg()
+        cfg["grooming"] = {
+            "label": "grooming",
+            "min_description_length": 50,
+            "min_children": 1,
+        }
+        mock_yaml.safe_load.return_value = cfg
+
+        epic_issue = _fake_jira_issue(
+            "CNV-300", "Sparse epic", description="Short",
+        )
+        mock_search.return_value = [epic_issue]
+
+        from schemas.issue_doc import IssueDoc
+        sparse_epic = IssueDoc(
+            key="CNV-300", summary="Sparse epic",
+            description="Short",
+        )
+        mock_fetch.return_value = (sparse_epic, [])
+
+        report = run(
+            epic_keys=["CNV-300"],
+            version="4.23",
+            apply=False,
+            use_llm=False,
+        )
+
+        assert "NEEDS GROOMING" in report
+        assert "grooming" in report.lower()
+        assert "Would add" in report
+
+    @patch("agent.runner.build_all_inventories")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.search_epics")
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner._validate_config")
+    @patch("agent.runner.yaml")
+    def test_detailed_epic_not_flagged(
+        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        mock_client, mock_inv,
+    ):
+        from agent.runner import run
+
+        cfg = _minimal_cfg()
+        cfg["grooming"] = {
+            "label": "grooming",
+            "min_description_length": 50,
+            "min_children": 1,
+        }
+        mock_yaml.safe_load.return_value = cfg
+
+        detailed_desc = (
+            "This epic covers moving all metrics from kubevirt "
+            "core into a separate monitoring repository."
+        )
+        epic_issue = _fake_jira_issue(
+            "CNV-301", "Detailed epic", description=detailed_desc,
+        )
+        mock_search.return_value = [epic_issue]
+
+        from schemas.issue_doc import IssueDoc
+        epic = IssueDoc(
+            key="CNV-301", summary="Detailed epic",
+            description=detailed_desc,
+        )
+        mock_fetch.return_value = (epic, [])
+
+        report = run(
+            epic_keys=["CNV-301"],
+            version="4.23",
+            apply=False,
+            use_llm=False,
+        )
+
+        assert "NEEDS GROOMING" not in report
+
+
+class TestLLMClarityCheck:
+    """Verify LLM clarity check integration in the runner."""
+
+    @patch("agent.runner.check_epic_clarity")
+    @patch("agent.runner.build_all_inventories")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.search_epics")
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner._validate_config")
+    @patch("agent.runner.yaml")
+    def test_llm_flags_vague_epic(
+        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        mock_client, mock_inv, mock_clarity,
+    ):
+        from agent.runner import run
+
+        cfg = _minimal_cfg()
+        cfg["grooming"] = {
+            "label": "grooming",
+            "min_description_length": 50,
+            "min_children": 1,
+            "llm_clarity_check": True,
+        }
+        mock_yaml.safe_load.return_value = cfg
+
+        _LONG_DESC = (
+            "Improve the observability of the system by adding "
+            "better monitoring and alerting capabilities."
+        )
+        epic_issue = _fake_jira_issue(
+            "CNV-400", "Improve observability",
+            description=_LONG_DESC,
+        )
+        mock_search.return_value = [epic_issue]
+
+        from schemas.issue_doc import IssueDoc
+        epic = IssueDoc(
+            key="CNV-400", summary="Improve observability",
+            description=_LONG_DESC,
+        )
+        mock_fetch.return_value = (epic, [])
+
+        mock_clarity.return_value = {
+            "verdict": "needs_grooming",
+            "reason": (
+                "The epic says 'improve observability' but does "
+                "not specify which components or metrics."
+            ),
+        }
+
+        report = run(
+            epic_keys=["CNV-400"],
+            version="4.23",
+            apply=False,
+            use_llm=True,
+        )
+
+        assert "NEEDS GROOMING" in report
+        assert "does not specify which components" in report
+        mock_clarity.assert_called_once()
+
+    @patch("agent.runner.check_epic_clarity")
+    @patch("agent.runner.build_all_inventories")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.search_epics")
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner.build_analysis_result")
+    @patch("agent.runner._validate_config")
+    @patch("agent.runner.yaml")
+    def test_llm_passes_clear_epic(
+        self, mock_yaml, mock_validate, mock_analysis,
+        mock_fetch, mock_search, mock_client, mock_inv,
+        mock_clarity,
+    ):
+        from agent.runner import run
+
+        cfg = _minimal_cfg()
+        cfg["grooming"] = {
+            "label": "grooming",
+            "min_description_length": 50,
+            "min_children": 1,
+            "llm_clarity_check": True,
+        }
+        mock_yaml.safe_load.return_value = cfg
+
+        _LONG_DESC = (
+            "Separate KubeVirt observability components into the "
+            "kubevirt/monitoring repository. Move metrics, alerts, "
+            "and dashboards. Keep metric names unchanged."
+        )
+        epic_issue = _fake_jira_issue(
+            "CNV-401", "Separate observability repo",
+            description=_LONG_DESC,
+        )
+        mock_search.return_value = [epic_issue]
+
+        from schemas.issue_doc import IssueDoc
+        epic = IssueDoc(
+            key="CNV-401", summary="Separate observability repo",
+            description=_LONG_DESC,
+        )
+        mock_fetch.return_value = (epic, [])
+
+        mock_clarity.return_value = {
+            "verdict": "clear",
+            "reason": "Scope is well-defined.",
+        }
+        mock_analysis.return_value = {
+            "epic_key": "CNV-401",
+            "epic_summary": "Separate observability repo",
+            "epic_description": _LONG_DESC,
+            "epic_labels": [],
+            "epic_components": [],
+            "associated_repos": [],
+            "child_issues": [],
+            "domain_keywords": [],
+            "need_state": "not_needed",
+            "need_confidence": "high",
+            "gaps": [],
+            "feature_types": [],
+            "proposals": {},
+            "dashboard_targets": [],
+            "telemetry_suggestions": [],
+            "recommended_action": "skip",
+            "apply_allowed": False,
+            "would_create_count": 0,
+        }
+
+        report = run(
+            epic_keys=["CNV-401"],
+            version="4.23",
+            apply=False,
+            use_llm=True,
+        )
+
+        assert "NEEDS GROOMING" not in report
+        mock_clarity.assert_called_once()
+
+    @patch("agent.runner.build_all_inventories")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.search_epics")
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner.build_analysis_result")
+    @patch("agent.runner._validate_config")
+    @patch("agent.runner.yaml")
+    def test_llm_check_skipped_when_disabled(
+        self, mock_yaml, mock_validate, mock_analysis,
+        mock_fetch, mock_search, mock_client, mock_inv,
+    ):
+        from agent.runner import run
+
+        cfg = _minimal_cfg()
+        cfg["grooming"] = {
+            "label": "grooming",
+            "min_description_length": 50,
+            "min_children": 1,
+            "llm_clarity_check": False,
+        }
+        mock_yaml.safe_load.return_value = cfg
+
+        _LONG_DESC = (
+            "Vague epic but clarity check disabled so it should "
+            "proceed to analysis without LLM grooming check."
+        )
+        epic_issue = _fake_jira_issue(
+            "CNV-402", "Some epic", description=_LONG_DESC,
+        )
+        mock_search.return_value = [epic_issue]
+
+        from schemas.issue_doc import IssueDoc
+        epic = IssueDoc(
+            key="CNV-402", summary="Some epic",
+            description=_LONG_DESC,
+        )
+        mock_fetch.return_value = (epic, [])
+        mock_analysis.return_value = {
+            "epic_key": "CNV-402",
+            "epic_summary": "Some epic",
+            "epic_description": _LONG_DESC,
+            "epic_labels": [],
+            "epic_components": [],
+            "associated_repos": [],
+            "child_issues": [],
+            "domain_keywords": [],
+            "need_state": "not_needed",
+            "need_confidence": "high",
+            "gaps": [],
+            "feature_types": [],
+            "proposals": {},
+            "dashboard_targets": [],
+            "telemetry_suggestions": [],
+            "recommended_action": "skip",
+            "apply_allowed": False,
+            "would_create_count": 0,
+        }
+
+        report = run(
+            epic_keys=["CNV-402"],
+            version="4.23",
+            apply=False,
+            use_llm=True,
+        )
+
+        assert "NEEDS GROOMING" not in report
 
 
 class TestRunnerConfigValidation:
