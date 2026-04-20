@@ -167,6 +167,224 @@ class TestProposalGeneration:
             assert "rationale" in e
             assert len(e["rationale"]) > 0
 
+    def test_existing_metrics_include_help_field(self):
+        from mcpserver.github.discover import (
+            MetricInfo,
+            ObservabilityInventory,
+        )
+
+        inv = ObservabilityInventory(
+            repo_path="test",
+            metrics=[
+                MetricInfo(
+                    name="kubevirt_api_request_total",
+                    help="Total API requests",
+                    metric_type="counter",
+                    file="metrics.go", line=1, repo="kubevirt",
+                ),
+            ],
+        )
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Add API request tracing",
+                description="Improve API observability",
+            ),
+        ]
+        proposals = propose_for_categories(
+            missing_categories=["metrics"],
+            feature_types=["api_controller"],
+            inventory=inv,
+            issues=issues,
+        )
+        existing = proposals["metrics"]["existing"]
+        assert len(existing) >= 1
+        hit = next(e for e in existing if e["name"] == "kubevirt_api_request_total")
+        assert hit["help"] == "Total API requests"
+
+    def test_existing_metrics_omit_help_when_empty(self):
+        from mcpserver.github.discover import (
+            MetricInfo,
+            ObservabilityInventory,
+        )
+
+        inv = ObservabilityInventory(
+            repo_path="test",
+            metrics=[
+                MetricInfo(
+                    name="kubevirt_api_request_total",
+                    help="",
+                    metric_type="counter",
+                    file="metrics.go", line=1, repo="kubevirt",
+                ),
+            ],
+        )
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Add API request tracing",
+                description="Improve API observability",
+            ),
+        ]
+        proposals = propose_for_categories(
+            missing_categories=["metrics"],
+            feature_types=["api_controller"],
+            inventory=inv,
+            issues=issues,
+        )
+        existing = proposals["metrics"]["existing"]
+        assert len(existing) >= 1
+        hit = next(e for e in existing if e["name"] == "kubevirt_api_request_total")
+        assert "help" not in hit
+
+    def test_existing_alerts_include_expr_field(self):
+        from mcpserver.github.discover import (
+            AlertRuleInfo,
+            ObservabilityInventory,
+        )
+
+        inv = ObservabilityInventory(
+            repo_path="test",
+            alerts=[
+                AlertRuleInfo(
+                    name="VMControllerDown",
+                    expr='up{job="kubevirt"} == 0',
+                    severity="critical",
+                    file="alerts.go", line=1,
+                    source_format="go", repo="kubevirt",
+                ),
+            ],
+        )
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Fix VM controller reconciliation",
+                description="Improve controller health monitoring",
+            ),
+        ]
+        proposals = propose_for_categories(
+            missing_categories=["alerts"],
+            feature_types=["api_controller"],
+            inventory=inv,
+            issues=issues,
+        )
+        existing = proposals["alerts"]["existing"]
+        assert len(existing) >= 1
+        hit = next(e for e in existing if e["name"] == "VMControllerDown")
+        assert hit["expr"] == 'up{job="kubevirt"} == 0'
+
+    def test_existing_alerts_omit_expr_when_empty(self):
+        from mcpserver.github.discover import (
+            AlertRuleInfo,
+            ObservabilityInventory,
+        )
+
+        inv = ObservabilityInventory(
+            repo_path="test",
+            alerts=[
+                AlertRuleInfo(
+                    name="VMControllerDown",
+                    expr="",
+                    severity="critical",
+                    file="alerts.go", line=1,
+                    source_format="go", repo="kubevirt",
+                ),
+            ],
+        )
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Fix VM controller reconciliation",
+                description="Improve controller health monitoring",
+            ),
+        ]
+        proposals = propose_for_categories(
+            missing_categories=["alerts"],
+            feature_types=["api_controller"],
+            inventory=inv,
+            issues=issues,
+        )
+        existing = proposals["alerts"]["existing"]
+        assert len(existing) >= 1
+        hit = next(e for e in existing if e["name"] == "VMControllerDown")
+        assert "expr" not in hit
+
+    def test_existing_panels_include_queries_field(self):
+        from mcpserver.github.discover import (
+            PanelInfo,
+            ObservabilityInventory,
+        )
+
+        inv = ObservabilityInventory(
+            repo_path="test",
+            panels=[
+                PanelInfo(
+                    name="Migration Success Rate",
+                    dashboard="KubeVirt / Migrations",
+                    queries=['rate(kubevirt_vmi_migration_succeeded[5m])'],
+                    file="dashboards.json", repo="kubevirt",
+                ),
+            ],
+        )
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Support IP Multicast live migration",
+                description="Improve migration observability",
+            ),
+        ]
+        proposals = propose_for_categories(
+            missing_categories=["dashboards"],
+            feature_types=["data_path"],
+            inventory=inv,
+            issues=issues,
+        )
+        existing = proposals["dashboards"]["existing"]
+        assert len(existing) >= 1
+        hit = next(
+            e for e in existing if e["name"] == "Migration Success Rate"
+        )
+        assert hit["queries"] == [
+            'rate(kubevirt_vmi_migration_succeeded[5m])',
+        ]
+
+    def test_existing_panels_omit_queries_when_empty(self):
+        from mcpserver.github.discover import (
+            PanelInfo,
+            ObservabilityInventory,
+        )
+
+        inv = ObservabilityInventory(
+            repo_path="test",
+            panels=[
+                PanelInfo(
+                    name="Migration Success Rate",
+                    dashboard="KubeVirt / Migrations",
+                    queries=[],
+                    file="dashboards.json", repo="kubevirt",
+                ),
+            ],
+        )
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Support IP Multicast live migration",
+                description="Improve migration observability",
+            ),
+        ]
+        proposals = propose_for_categories(
+            missing_categories=["dashboards"],
+            feature_types=["data_path"],
+            inventory=inv,
+            issues=issues,
+        )
+        existing = proposals["dashboards"]["existing"]
+        assert len(existing) >= 1
+        hit = next(
+            e for e in existing if e["name"] == "Migration Success Rate"
+        )
+        assert "queries" not in hit
+
     def test_existing_items_have_rationale_with_matched_keyword(self):
         from mcpserver.github.discover import MetricInfo, ObservabilityInventory
 

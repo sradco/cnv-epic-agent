@@ -212,6 +212,25 @@ that is the responsibility of the platform operator, not \
 KubeVirt/CNV.
 """
 
+_FEW_SHOT_EXAMPLES = """\
+Examples of correct vs. incorrect judgment:
+
+BAD: Epic adds VM status hierarchy. Proposed new gauge \
+`kubevirt_vms_summary_total`. Wrong — `kubevirt_vm_info` \
+already has a `status` label; aggregation by status is a \
+PromQL query or recording rule, not a new metric.
+
+BAD: Epic reads OpenShift APIServer TLSAdherence field. \
+Proposed alert for unknown values. Wrong — HCO only reads \
+that CR, it does not own it. Alerting on platform CRs is \
+the platform operator's responsibility.
+
+GOOD: Epic adds GPU passthrough. No existing GPU metrics \
+in inventory. Proposed `kubevirt_vmi_gpu_allocated` gauge \
+and `KubeVirtVMIGPUAllocationFailed` alert. Correct — \
+genuinely new capability with no existing coverage.
+"""
+
 _DOCS_RULES = """\
 Docs story rules:
 - Only when the epic introduces a new user-facing feature, \
@@ -256,6 +275,7 @@ def get_system_prompt(categories: list[str] | None = None) -> str:
     parts = [SYSTEM_PROMPT]
     if cats & _OBSERVABILITY_CATEGORIES:
         parts.append(_OBSERVABILITY_RULES)
+        parts.append(_FEW_SHOT_EXAMPLES)
     if "docs" in cats:
         parts.append(_DOCS_RULES)
     if "qe" in cats:

@@ -296,7 +296,7 @@ def _propose_from_inventory(
             kw = _matched_keyword(m.name, m.help, keywords)
             if kw and m.name.lower() not in seen:
                 seen.add(m.name.lower())
-                items.append({
+                item: dict[str, Any] = {
                     "name": m.name,
                     "type": m.metric_type,
                     "repo": m.repo,
@@ -304,13 +304,16 @@ def _propose_from_inventory(
                         f"Already tracks {kw}-related behavior — "
                         f"verify it captures the new functionality"
                     ),
-                })
+                }
+                if m.help:
+                    item["help"] = m.help
+                items.append(item)
     elif category == "alerts" and hasattr(inventory, "alerts"):
         for a in inventory.alerts:
             kw = _matched_keyword(a.name, a.expr, keywords)
             if kw and a.name.lower() not in seen:
                 seen.add(a.name.lower())
-                items.append({
+                item = {
                     "name": a.name,
                     "severity": a.severity,
                     "repo": a.repo,
@@ -318,13 +321,16 @@ def _propose_from_inventory(
                         f"Existing alert covering {kw} failures — "
                         f"verify it triggers for the new code path"
                     ),
-                })
+                }
+                if a.expr:
+                    item["expr"] = a.expr
+                items.append(item)
     elif category == "dashboards" and hasattr(inventory, "panels"):
         for p in inventory.panels:
             kw = _matched_keyword(p.name, p.dashboard, keywords)
             if kw and p.name.lower() not in seen:
                 seen.add(p.name.lower())
-                items.append({
+                item = {
                     "name": p.name,
                     "dashboard": p.dashboard,
                     "repo": p.repo,
@@ -332,7 +338,10 @@ def _propose_from_inventory(
                         f"Panel visualizing {kw} data — "
                         f"check if new functionality is reflected here"
                     ),
-                })
+                }
+                if p.queries:
+                    item["queries"] = p.queries
+                items.append(item)
 
     return items
 

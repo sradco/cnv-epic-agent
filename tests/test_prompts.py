@@ -108,10 +108,32 @@ class TestGetSystemPromptWithObservability:
         assert "owns or directly controls" in lowered
         assert "external cr" in lowered
 
+    def test_few_shot_examples_present(self):
+        prompt = get_system_prompt(self._ALL_OBS)
+        assert "Examples of correct vs. incorrect judgment" in prompt
+
+    def test_few_shot_bad_recording_rule_example(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "recording rule" in lowered
+        assert "kubevirt_vm_info" in lowered
+
+    def test_few_shot_bad_external_cr_example(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "platform operator" in lowered
+
+    def test_few_shot_good_gpu_example(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "gpu passthrough" in lowered
+        assert "genuinely new capability" in lowered
+
     def test_obs_rules_not_injected_without_obs_categories(self):
         lowered = get_system_prompt(["docs", "qe"]).lower()
         assert "presence" not in lowered
         assert "backed by" not in lowered
+
+    def test_few_shot_not_injected_without_obs_categories(self):
+        prompt = get_system_prompt(["docs", "qe"])
+        assert "Examples of correct vs. incorrect judgment" not in prompt
 
 
 class TestGetSystemPromptWithDocs:
