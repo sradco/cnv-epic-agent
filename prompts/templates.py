@@ -177,6 +177,13 @@ panels to existing dashboards. Every panel MUST reference \
 specific metrics.
 - Do NOT propose presence-check alerts, dashboards for internal \
 component health, or items only useful to test pipelines.
+- Only propose metrics and alerts for resources the component \
+**owns or directly controls**. If the component merely reads \
+an external CR or config (e.g. an OpenShift platform CR like \
+APIServer, Infrastructure, or Network), do NOT propose alerts \
+or metrics for unexpected values in that external resource — \
+that is the responsibility of the platform operator, not \
+KubeVirt/CNV.
 """
 
 _DOCS_RULES = """\

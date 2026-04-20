@@ -103,6 +103,11 @@ class TestGetSystemPromptWithObservability:
         assert "actionable response" in lowered
         assert "dashboard insight" in lowered
 
+    def test_no_alerts_for_external_resources(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "owns or directly controls" in lowered
+        assert "external cr" in lowered
+
     def test_obs_rules_not_injected_without_obs_categories(self):
         lowered = get_system_prompt(["docs", "qe"]).lower()
         assert "presence" not in lowered
