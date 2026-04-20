@@ -121,6 +121,11 @@ def main() -> None:
         help="Use template-based stories instead of LLM",
     )
     parser.add_argument(
+        "--output", "-o",
+        default=None,
+        help="Write report to a file (in addition to stdout)",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         default=False,
@@ -159,6 +164,14 @@ def main() -> None:
     )
 
     print(report)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(report)
+            fh.write("\n")
+        logging.getLogger(__name__).info(
+            "Report written to %s", args.output,
+        )
 
 
 if __name__ == "__main__":
