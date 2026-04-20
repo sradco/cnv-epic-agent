@@ -146,6 +146,12 @@ the child stories and propose QE or docs stories for specific \
 items that need them.
 
 Do NOT duplicate work already tracked as child issues. \
+If a child story's summary already describes the metrics, \
+alerts, dashboards, recording rules, or observability work \
+you would propose, that work is already planned — do NOT \
+propose a new story for it. Only propose QE or docs stories \
+that complement existing children when genuinely needed.
+
 If the epic has a **no-doc** label, skip docs stories. \
 If the epic has a **no-qe** label, skip QE stories.
 
