@@ -831,8 +831,8 @@ class TestLLMClarityCheck:
         )
 
         assert "NEEDS GROOMING" not in report
-        assert "Separate observability repo" in report
-        assert "No stories generated" in report
+        assert "Separate observability repo" not in report
+        assert "nothing to report" in report
         mock_clarity.assert_called_once()
         mock_compose.assert_called_once()
 
@@ -904,8 +904,8 @@ class TestLLMClarityCheck:
         )
 
         assert "NEEDS GROOMING" not in report
-        assert "Some epic" in report
-        assert "No stories generated" in report
+        assert "Some epic" not in report
+        assert "nothing to report" in report
         mock_compose.assert_called_once()
 
 

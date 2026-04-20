@@ -104,6 +104,7 @@ class _RunCounters:
     def __init__(self) -> None:
         self.created = 0
         self.skipped = 0
+        self.skipped_epics = 0
         self.failed = 0
         self.llm_errors = 0
         self.sp_updated = 0
@@ -572,16 +573,17 @@ def run(
             epic, children, cfg, inventory=inv,
         )
 
-        report_lines.append(f"## {epic_key} — {epic.summary}")
+        epic_header: list[str] = []
+        epic_header.append(f"## {epic_key} — {epic.summary}")
         epic_components = result.get("epic_components", [])
         if epic_components:
-            report_lines.append(
+            epic_header.append(
                 f"Components: {', '.join(epic_components)}"
             )
-        report_lines.append(
+        epic_header.append(
             f"Gaps: {', '.join(result.get('gaps', []))}"
         )
-        report_lines.append("")
+        epic_header.append("")
 
         epic_labels = set(result.get("epic_labels", []))
         epic_categories = list(enabled_categories)
@@ -610,6 +612,7 @@ def run(
                     "[%s] LLM failed for %s: %s",
                     run_id, epic_key, exc,
                 )
+                report_lines.extend(epic_header)
                 report_lines.append(f"- **LLM ERROR**: {exc}")
                 report_lines.append("")
                 continue
@@ -619,6 +622,7 @@ def run(
                     "[%s] Story composition failed for %s: %s",
                     run_id, epic_key, exc, exc_info=True,
                 )
+                report_lines.extend(epic_header)
                 report_lines.append(
                     f"- **COMPOSITION ERROR**: "
                     f"{type(exc).__name__}: {exc}"
@@ -638,8 +642,7 @@ def run(
             ]
 
         if not stories:
-            report_lines.append("*No stories generated.*")
-            report_lines.append("")
+            ctx.counters.skipped_epics += 1
             continue
 
         if version:
@@ -657,9 +660,12 @@ def run(
             _children_as_dedup_entries(children)
         )
 
-        report_lines.extend(_dedup_and_create(
+        story_lines = _dedup_and_create(
             stories, epic_key, obs_epic, existing, ctx,
-        ))
+        )
+
+        report_lines.extend(epic_header)
+        report_lines.extend(story_lines)
 
         if estimate_existing and use_llm:
             report_lines.extend(_estimate_existing_sp(
@@ -687,10 +693,18 @@ def run(
     if counters.failed:
         error_summary += f", {counters.failed} failed"
 
+    epic_skip = ""
+    if counters.skipped_epics:
+        epic_skip = (
+            f", {counters.skipped_epics} "
+            f"epic(s) with nothing to report"
+        )
+
     report_lines.append(
         f"**Total: {counters.created} "
         f"{'created' if apply else 'would create'}, "
-        f"{counters.skipped} skipped{sp_summary}{error_summary}**"
+        f"{counters.skipped} skipped"
+        f"{epic_skip}{sp_summary}{error_summary}**"
     )
 
     return "\n".join(report_lines)
