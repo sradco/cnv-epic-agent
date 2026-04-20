@@ -444,6 +444,12 @@ class TestClarityCheckPrompt:
     def test_system_prompt_mentions_scope(self):
         assert "scope" in CLARITY_CHECK_SYSTEM_PROMPT.lower()
 
+    def test_backlog_umbrella_epics_accepted(self):
+        lowered = CLARITY_CHECK_SYSTEM_PROMPT.lower()
+        assert "backlog" in lowered
+        assert "umbrella" in lowered
+        assert "child stories define the scope" in lowered
+
     def test_schema_has_verdict_and_reason(self):
         props = CLARITY_CHECK_JSON_SCHEMA["properties"]
         assert "verdict" in props

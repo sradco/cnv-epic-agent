@@ -523,6 +523,14 @@ are involved
 - There are no child stories to clarify scope, and the \
 description does not compensate
 
+Recurring backlog / umbrella epics (e.g. "Metrics backlog 4.23", \
+"Observability backlog") are common and valid. Their description \
+may be intentionally generic because the **child stories define \
+the scope**. If an epic has a clear topic in its summary and \
+child stories that are related to that topic, mark it as clear. \
+Mixed or unrelated children do not make it unclear — the LLM \
+story composition step will focus on the relevant ones.
+
 Be pragmatic: a short but specific description is fine. A long \
 but hand-wavy description is not.
 
