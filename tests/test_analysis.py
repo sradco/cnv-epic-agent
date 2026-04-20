@@ -383,9 +383,9 @@ class TestFullPipeline:
         assert result["need_state"] == "needed"
         assert len(result["gaps"]) > 0
         assert len(result["proposals"]) > 0
-        assert result["apply_allowed"]
+        assert result["apply_allowed"] is True
         assert result["would_create_count"] > 0
-        assert result["recommended_action"] in ("create now", "review first")
+        assert result["recommended_action"] == "create now"
 
     def test_docs_epic_produces_no_gaps(self):
         epic, children = _make_issues(
@@ -395,8 +395,8 @@ class TestFullPipeline:
         result = build_analysis_result(epic, children, cfg)
 
         assert result["need_state"] in ("not_needed", "uncertain")
-        assert len(result["gaps"]) == 0
-        assert result["recommended_action"] in ("skip", "review first")
+        assert result["apply_allowed"] is True
+        assert result["recommended_action"] in ("create now", "no gaps found")
 
     def test_proposals_have_two_section_structure(self):
         epic, children = _make_issues("sample_epic.json", "sample_stories.json")

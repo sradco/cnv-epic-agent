@@ -564,17 +564,6 @@ def run(
             epic, children, cfg, inventory=inv,
         )
 
-        if not result.get("apply_allowed"):
-            report_lines.append(
-                f"## {epic_key} — {result['need_state']} "
-                f"({result['need_confidence']})"
-            )
-            report_lines.append(
-                f"*{result['recommended_action']}*"
-            )
-            report_lines.append("")
-            continue
-
         report_lines.append(f"## {epic_key} — {epic.summary}")
         epic_components = result.get("epic_components", [])
         if epic_components:

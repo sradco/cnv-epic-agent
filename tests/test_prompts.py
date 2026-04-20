@@ -124,6 +124,25 @@ class TestSystemPrompt:
         assert "CNV Storage" in SYSTEM_PROMPT
         assert "containerized-data-importer" in SYSTEM_PROMPT
 
+    def test_alert_placement_by_metric_prefix(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "metric prefix" in lowered
+        assert "kubevirt_vmi_*" in SYSTEM_PROMPT
+        assert "kubevirt_hco_*" in SYSTEM_PROMPT
+        assert "kubevirt_hpp_*" in SYSTEM_PROMPT
+        assert "kubevirt_cdi_*" in SYSTEM_PROMPT
+
+    def test_monitoring_repo_scoped_to_operator(self):
+        assert "monitoring operator" in SYSTEM_PROMPT.lower()
+        assert "do not place alert rules in kubevirt/monitoring" in \
+            SYSTEM_PROMPT.lower()
+
+    def test_alerts_require_actionable_response(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "actionable response" in lowered
+        assert "capacity-planning insight" in lowered
+        assert "dashboard, not an alert" in lowered
+
 
 class TestBuildPrompt:
     def _make_analysis(self, **overrides):

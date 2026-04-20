@@ -634,7 +634,7 @@ def build_analysis_result(
 
     telemetry_suggestions = suggest_telemetry(inventory=inventory, issues=issue_set)
 
-    if telemetry_suggestions and need["need_state"] == "needed":
+    if telemetry_suggestions:
         if "telemetry" not in missing:
             missing.append("telemetry")
         proposals["telemetry"] = {
@@ -654,16 +654,11 @@ def build_analysis_result(
             ],
         }
 
-    if need["need_state"] == "needed" and missing:
-        recommended_action = (
-            "create now" if need["confidence"] == "high" else "review first"
-        )
-    elif need["need_state"] == "uncertain":
-        recommended_action = "review first"
-    else:
-        recommended_action = "skip"
+    recommended_action = (
+        "create now" if missing else "no gaps found"
+    )
 
-    apply_allowed = need["need_state"] == "needed" and bool(missing)
+    apply_allowed = True
 
     domain_keywords = extract_domain_keywords(issue_set)
 
@@ -695,12 +690,12 @@ def build_analysis_result(
             "not_needed": need["not_needed_evidence"],
         },
         "coverage": coverage,
-        "gaps": missing if need["need_state"] == "needed" else [],
+        "gaps": missing,
         "feature_types": feature_types,
         "proposals": proposals,
         "dashboard_targets": dashboard_target_list,
         "telemetry_suggestions": telemetry_suggestions,
         "recommended_action": recommended_action,
         "apply_allowed": apply_allowed,
-        "would_create_count": len(missing) if apply_allowed else 0,
+        "would_create_count": len(missing),
     }

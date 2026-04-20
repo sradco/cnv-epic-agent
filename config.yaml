@@ -54,6 +54,9 @@ telemetry:
   cmo_allowlist_url: "https://raw.githubusercontent.com/openshift/cluster-monitoring-operator/master/manifests/0000_50_cluster-monitoring-operator_04-config.yaml"
 
 analysis:
+  # Advisory only — these terms inform the analysis result but do
+  # NOT gate story generation. Every epic that passes grooming is
+  # always sent to the LLM.
   need_assessment:
     needed_threshold: 2
     not_needed_threshold: -1

@@ -201,26 +201,6 @@ def register_jira_tools(server: Any) -> None:
             epic, children, cfg, inventory=inv,
         )
 
-        if not result.get("apply_allowed"):
-            if dry_run:
-                if result["need_state"] == "not_needed":
-                    return (
-                        f"Monitoring is not needed for {epic_key}. "
-                        "No stories to create."
-                    )
-                if result["need_state"] == "uncertain":
-                    return (
-                        f"Monitoring need for {epic_key} is uncertain "
-                        f"(confidence: {result['need_confidence']}). "
-                        "Manual review recommended before creating stories."
-                    )
-                return f"No observability gaps found for {epic_key}."
-            return (
-                f"Cannot create stories for {epic_key}: "
-                f"need_state={result['need_state']}, "
-                f"gaps={result.get('gaps', [])}"
-            )
-
         if categories:
             result["gaps"] = [
                 g for g in result["gaps"] if g in categories

@@ -752,6 +752,7 @@ class TestLLMClarityCheck:
         assert "does not specify which components" in report
         mock_clarity.assert_called_once()
 
+    @patch("agent.runner.compose_stories")
     @patch("agent.runner.check_epic_clarity")
     @patch("agent.runner.build_all_inventories")
     @patch("agent.runner.get_jira_client")
@@ -763,7 +764,7 @@ class TestLLMClarityCheck:
     def test_llm_passes_clear_epic(
         self, mock_yaml, mock_validate, mock_analysis,
         mock_fetch, mock_search, mock_client, mock_inv,
-        mock_clarity,
+        mock_clarity, mock_compose,
     ):
         from agent.runner import run
 
@@ -814,10 +815,11 @@ class TestLLMClarityCheck:
             "proposals": {},
             "dashboard_targets": [],
             "telemetry_suggestions": [],
-            "recommended_action": "skip",
-            "apply_allowed": False,
+            "recommended_action": "no gaps found",
+            "apply_allowed": True,
             "would_create_count": 0,
         }
+        mock_compose.return_value = []
 
         report = run(
             epic_keys=["CNV-401"],
@@ -827,8 +829,12 @@ class TestLLMClarityCheck:
         )
 
         assert "NEEDS GROOMING" not in report
+        assert "Separate observability repo" in report
+        assert "No stories generated" in report
         mock_clarity.assert_called_once()
+        mock_compose.assert_called_once()
 
+    @patch("agent.runner.compose_stories")
     @patch("agent.runner.build_all_inventories")
     @patch("agent.runner.get_jira_client")
     @patch("agent.runner.search_epics")
@@ -839,6 +845,7 @@ class TestLLMClarityCheck:
     def test_llm_check_skipped_when_disabled(
         self, mock_yaml, mock_validate, mock_analysis,
         mock_fetch, mock_search, mock_client, mock_inv,
+        mock_compose,
     ):
         from agent.runner import run
 
@@ -882,10 +889,11 @@ class TestLLMClarityCheck:
             "proposals": {},
             "dashboard_targets": [],
             "telemetry_suggestions": [],
-            "recommended_action": "skip",
-            "apply_allowed": False,
+            "recommended_action": "no gaps found",
+            "apply_allowed": True,
             "would_create_count": 0,
         }
+        mock_compose.return_value = []
 
         report = run(
             epic_keys=["CNV-402"],
@@ -895,6 +903,9 @@ class TestLLMClarityCheck:
         )
 
         assert "NEEDS GROOMING" not in report
+        assert "Some epic" in report
+        assert "No stories generated" in report
+        mock_compose.assert_called_once()
 
 
 class TestRunnerConfigValidation:

@@ -143,9 +143,26 @@ and the observability layer of the other repositories
 kubevirt/hostpath-provisioner-operator
 - "CNV Storage" → kubevirt/containerized-data-importer
 
-Use the epic's component and associated repositories to focus \
-your analysis on the relevant codebase. The prompt will include \
-the specific component and repos for each epic.
+Alert and recording-rule placement — where observability \
+artifacts live depends on the metric prefix, NOT the epic's \
+Jira component:
+- kubevirt_vmi_* metrics, alerts, and recording rules → \
+kubevirt/kubevirt (they ship with virt-launcher / virt-controller)
+- kubevirt_hco_* metrics and alerts → \
+kubevirt/hyperconverged-cluster-operator
+- kubevirt_hpp_* metrics and alerts → \
+kubevirt/hostpath-provisioner
+- kubevirt_cdi_* / kubevirt_import_* metrics and alerts → \
+kubevirt/containerized-data-importer
+- kubevirt/monitoring contains the monitoring operator itself \
+and dashboards — NOT alert rules for other components. \
+Do NOT place alert rules in kubevirt/monitoring unless the \
+alert is about the monitoring operator's own health.
+
+Use the epic's component and associated repositories to \
+understand the feature scope, but always use the metric-prefix \
+rules above to determine where alerts, recording rules, and \
+dashboards should be defined.
 
 Think from the perspective of real customers operating clusters \
 at scale. Every metric, alert, and dashboard you propose must \
@@ -194,6 +211,12 @@ kubevirt_<component>_<noun>_<unit> naming, CamelCase alert names.
 proposed in this epic). Name the metric in the description. \
 Do NOT propose alerts for metrics that don't exist yet unless \
 the same run also proposes those metrics.
+- Every alert must have a clear actionable response — the \
+operator must be able to do something concrete when it fires \
+(investigate, scale, restart, reallocate). "Low utilization" \
+or "resource is idle" is a capacity-planning insight best \
+surfaced on a dashboard, NOT an alert. Only propose an alert \
+when the condition requires timely human or automated action.
 - Dashboards must serve a real operator workflow — ask "would a \
 customer open this dashboard during an incident, capacity \
 planning session, or health review?" Do NOT propose dashboards \

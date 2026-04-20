@@ -151,10 +151,8 @@ def format_analysis_result(result: dict[str, Any]) -> str:
         lines.append(
             f'Apply: `create_stories(epic_key="{result["epic_key"]}", version="<VERSION>", dry_run=False)`'
         )
-    elif action == "review first":
-        lines.append("Manual review recommended before creating stories.")
     else:
-        lines.append("No observability stories needed.")
+        lines.append("No new stories needed.")
 
     return "\n".join(lines)
 
