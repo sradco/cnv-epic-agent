@@ -84,9 +84,17 @@ STORY_JSON_SCHEMA: dict[str, Any] = {
                     "description": {
                         "type": "string",
                         "description": (
-                            "Full Jira story body in markdown with sections: "
-                            "Why this is needed, Proposed changes, "
-                            "Acceptance criteria"
+                            "Full Jira story body in markdown. "
+                            "For observability stories include: "
+                            "## Why this matters (real-world problem), "
+                            "## Who benefits (operator / SRE / "
+                            "virt-operator), "
+                            "## How it is used (concrete scenario), "
+                            "## Proposed changes, "
+                            "## Acceptance criteria (checklist). "
+                            "For other categories: Why this is "
+                            "needed, Proposed changes, "
+                            "Acceptance criteria."
                         ),
                     },
                     "story_points": {

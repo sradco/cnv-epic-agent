@@ -270,14 +270,58 @@ agent:
         - "Release notes entry added if user-visible"
         - "API reference updated if endpoints changed"
     qe:
-      trigger: "Epic has child stories that introduce runtime changes, new APIs, or user-facing behavior"
+      trigger: "Epic has observability child stories (metrics, alerts, dashboards) or introduces runtime changes that need verification"
       story_prefix: "[QE]"
+      split_guidance: >-
+        Create separate QE stories by test type. Group same-type
+        tests into one story (e.g. one story listing all metric
+        unit tests, one for alert rule validation). Reference the
+        specific observability story keys each QE story validates.
+      test_categories:
+        - name: "Metric unit tests"
+          type: "automated"
+          prefix: "[QE][metrics]"
+          criteria:
+            - "Each new metric is registered and exposed on /metrics"
+            - "Metric type (counter/gauge/histogram) is correct"
+            - "Labels are present and have expected values"
+            - "Metric emits expected values under known conditions"
+            - "No unbounded cardinality introduced"
+        - name: "Alert rule validation"
+          type: "automated"
+          prefix: "[QE][alerts]"
+          criteria:
+            - "PrometheusRule fires against sample data"
+            - "Alert severity and runbook_url annotation are set"
+            - "Alert resolves when condition clears"
+            - "Alert does not fire under normal conditions"
+        - name: "Dashboard verification"
+          type: "manual + automated"
+          prefix: "[QE][dashboards]"
+          criteria:
+            - "Panels render correctly with sample data"
+            - "PromQL queries return expected results"
+            - "No broken panels after upgrade"
+            - "Layout follows existing conventions"
+        - name: "End-to-end pipeline"
+          type: "manual"
+          prefix: "[QE][e2e]"
+          criteria:
+            - "Metrics scraped by Prometheus in real cluster"
+            - "Alerts fire in real cluster under fault injection"
+            - "Dashboard panels populated with live data"
+        - name: "Upgrade/rollback"
+          type: "manual"
+          prefix: "[QE][upgrade]"
+          criteria:
+            - "Metrics/alerts/dashboards survive upgrade"
+            - "No data loss or broken panels after rollback"
+            - "Recording rules produce correct values post-upgrade"
       acceptance_criteria:
-        - "Test plan covers all child stories with testable changes"
-        - "Test plan reviewed and approved by QE"
-        - "Automated tests added for happy path"
-        - "Edge cases and failure modes identified"
-        - "Upgrade/rollback scenarios covered if applicable"
+        - "Test cases listed as checklist in story description"
+        - "Each test case references the metric/alert/dashboard it validates"
+        - "Automated tests added where applicable"
+        - "Manual verification steps documented for manual tests"
   story_points:
     enabled: true
     estimate_existing: true

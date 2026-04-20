@@ -501,6 +501,152 @@ class TestAnalysisDataOutput:
         assert "domain_keywords" in result
 
 
+class TestFeatureTypeDetectionTightened:
+    """Verify that single-word signals only match the epic, not children."""
+
+    def test_controller_in_child_only_does_not_trigger(self):
+        """'controller' appearing only in a child should not trigger
+        api_controller, since it may be unrelated (e.g. 'Prometheus
+        collector' is not a Kubernetes controller)."""
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Add VM GPU metrics",
+                description="Expose GPU info for VMs",
+            ),
+            IssueDoc(
+                key="CNV-2",
+                summary="Implement Prometheus collector for GPU",
+                description="controller for GPU metric scraping",
+            ),
+        ]
+        signals = {
+            "api_controller": [
+                "controller", "operator", "reconciler",
+            ],
+        }
+        ftypes = detect_feature_types(issues, signals)
+        assert "api_controller" not in ftypes
+
+    def test_controller_in_epic_triggers(self):
+        """'controller' in the epic summary should still trigger."""
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="Improve VMI controller reconcile loop",
+                description="",
+            ),
+        ]
+        signals = {
+            "api_controller": [
+                "controller", "operator", "reconciler",
+            ],
+        }
+        ftypes = detect_feature_types(issues, signals)
+        assert "api_controller" in ftypes
+
+    def test_multiword_signal_in_child_triggers(self):
+        """Multi-word signals like 'live migration' should match
+        in child issues (they're specific enough to avoid false
+        positives)."""
+        issues = [
+            IssueDoc(
+                key="CNV-1",
+                summary="NIC hotplug feature",
+                description="",
+            ),
+            IssueDoc(
+                key="CNV-2",
+                summary="Support live migration for hotplug NICs",
+                description="",
+            ),
+        ]
+        signals = {
+            "data_path": [
+                "storage", "networking", "live migration",
+            ],
+        }
+        ftypes = detect_feature_types(issues, signals)
+        assert "data_path" in ftypes
+
+
+class TestMetricBackingFilter:
+    """Verify that alert/dashboard proposals are dropped when no
+    metrics exist to back them."""
+
+    def test_alerts_dropped_without_metric_backing(self):
+        proposals = propose_for_categories(
+            missing_categories=["alerts"],
+            feature_types=["api_controller"],
+            inventory=None,
+            issues=[
+                IssueDoc(
+                    key="CNV-1",
+                    summary="Improve reconciler health",
+                    description="",
+                ),
+            ],
+            patterns_cfg=_load_config().get("observability_patterns", {}),
+            all_coverage_categories=[],
+        )
+        assert proposals["alerts"]["proposed"] == []
+
+    def test_alerts_kept_when_metrics_coverage_present(self):
+        proposals = propose_for_categories(
+            missing_categories=["alerts"],
+            feature_types=["api_controller"],
+            inventory=None,
+            issues=[
+                IssueDoc(
+                    key="CNV-1",
+                    summary="Improve reconciler health",
+                    description="",
+                ),
+            ],
+            patterns_cfg=_load_config().get("observability_patterns", {}),
+            all_coverage_categories=["metrics"],
+        )
+        assert len(proposals["alerts"]["proposed"]) > 0
+
+    def test_alerts_kept_when_metrics_proposed(self):
+        from mcpserver.github.discover import ObservabilityInventory
+
+        inv = ObservabilityInventory(repo_path="test")
+        proposals = propose_for_categories(
+            missing_categories=["metrics", "alerts"],
+            feature_types=["api_controller"],
+            inventory=inv,
+            issues=[
+                IssueDoc(
+                    key="CNV-1",
+                    summary="Improve reconciler health",
+                    description="",
+                ),
+            ],
+            patterns_cfg=_load_config().get("observability_patterns", {}),
+            all_coverage_categories=[],
+        )
+        assert len(proposals["metrics"]["proposed"]) > 0
+        assert len(proposals["alerts"]["proposed"]) > 0
+
+    def test_dashboards_dropped_without_metric_backing(self):
+        proposals = propose_for_categories(
+            missing_categories=["dashboards"],
+            feature_types=["api_controller"],
+            inventory=None,
+            issues=[
+                IssueDoc(
+                    key="CNV-1",
+                    summary="Improve reconciler health",
+                    description="",
+                ),
+            ],
+            patterns_cfg=_load_config().get("observability_patterns", {}),
+            all_coverage_categories=[],
+        )
+        assert proposals["dashboards"]["proposed"] == []
+
+
 if __name__ == "__main__":
     import pytest
 

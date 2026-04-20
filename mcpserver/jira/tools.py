@@ -17,6 +17,10 @@ def register_jira_tools(server: Any) -> None:
     async def scan_epics(
         project: Optional[str] = None,
         since_days: Optional[int] = None,
+        component: Optional[str] = None,
+        fix_version: Optional[str] = None,
+        target_version: Optional[str] = None,
+        labels: Optional[list[str]] = None,
         jql: Optional[str] = None,
     ) -> str:
         """Scan CNV epics for observability gaps.
@@ -29,7 +33,11 @@ def register_jira_tools(server: Any) -> None:
         Parameters:
         - project: Jira project key (default: CNV)
         - since_days: how far back to look (default: 30)
-        - jql: optional raw JQL override
+        - component: filter by Jira component name
+        - fix_version: filter by fixVersion
+        - target_version: filter by Target Version
+        - labels: filter by labels (all must match)
+        - jql: optional raw JQL override (ignores other filters)
         """
         from mcpserver.server import load_config, get_inventory
 
@@ -45,6 +53,8 @@ def register_jira_tools(server: Any) -> None:
         client = get_jira_client(cfg)
         epics = _search_epics(
             client, cfg, project=project, since_days=since_days, jql=jql,
+            component=component, fix_version=fix_version,
+            target_version=target_version, labels=labels,
         )
 
         if not epics:

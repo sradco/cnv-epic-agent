@@ -309,6 +309,10 @@ def run(
     epic_keys: list[str] | None = None,
     version: str = "",
     since_days: int | None = None,
+    component: str | None = None,
+    fix_version: str | None = None,
+    target_version: str | None = None,
+    labels: list[str] | None = None,
     apply: bool = False,
     model: str = "",
     use_llm: bool = True,
@@ -320,6 +324,10 @@ def run(
     - epic_keys: specific epic keys to process (None = scan via JQL)
     - version: CNV version for the observability epic
     - since_days: how far back to scan (overrides config)
+    - component: filter epics by Jira component name
+    - fix_version: filter epics by fixVersion
+    - target_version: filter epics by Target Version
+    - labels: filter epics by label(s)
     - apply: if True, create stories on Jira; if False, dry-run
     - model: LLM model string (overrides config)
     - use_llm: if True, use LLM for story composition; if False,
@@ -373,6 +381,14 @@ def run(
         kwargs: dict[str, Any] = {}
         if since_days:
             kwargs["since_days"] = since_days
+        if component:
+            kwargs["component"] = component
+        if fix_version:
+            kwargs["fix_version"] = fix_version
+        if target_version:
+            kwargs["target_version"] = target_version
+        if labels:
+            kwargs["labels"] = labels
         epics_to_process = search_epics(client, cfg, **kwargs)
 
     if not epics_to_process:
@@ -390,6 +406,16 @@ def run(
         run_id=run_id,
     )
 
+    filters_active: list[str] = []
+    if component:
+        filters_active.append(f"component={component}")
+    if fix_version:
+        filters_active.append(f"fixVersion={fix_version}")
+    if target_version:
+        filters_active.append(f"targetVersion={target_version}")
+    if labels:
+        filters_active.append(f"labels={','.join(labels)}")
+
     report_lines: list[str] = [
         f"# Epic Agent Run ({'APPLY' if apply else 'DRY-RUN'})",
         "",
@@ -398,6 +424,7 @@ def run(
         f"- **Model:** {model}",
         f"- **Mode:** {'LLM-assisted' if use_llm else 'template-based'}",
         f"- **Categories:** {', '.join(enabled_categories)}",
+        f"- **Filters:** {', '.join(filters_active) if filters_active else '(none)'}",
         f"- **Run ID:** {run_id}",
         "",
     ]

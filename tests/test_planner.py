@@ -13,6 +13,7 @@ from mcpserver.jira.client import (
     _hash_summary,
     _normalize_summary,
     _should_set_story_points,
+    build_epic_jql,
     is_duplicate_story,
 )
 from prompts.templates import (
@@ -378,6 +379,76 @@ class TestIsDuplicateStory:
             "Any summary", "CNV-1", [],
         ) is False
 
+    def test_duplicate_by_embedded_key(self):
+        """LLM embeds a child key like (CNV-51517) in the summary."""
+        existing = [
+            {
+                "key": "CNV-51517",
+                "summary": "Add allocated GPU metric for each VM",
+                "labels": [],
+                "description": "",
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][metrics] Add Prometheus metric "
+            "for allocated GPU per VM (CNV-51517)",
+            "CNV-51516",
+            existing,
+        ) is True
+
+    def test_duplicate_by_containment(self):
+        """Child summary is contained within the LLM summary."""
+        existing = [
+            {
+                "key": "CNV-84407",
+                "summary": "virt-launcher GPU metrics scraping "
+                           "and Prometheus collector",
+                "labels": [],
+                "description": "",
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][metrics] Implement virt-launcher "
+            "GPU metrics scraping and Prometheus collector "
+            "(CNV-84407)",
+            "CNV-51516",
+            existing,
+        ) is True
+
+    def test_no_containment_for_short_summaries(self):
+        """Short child summaries should not trigger containment."""
+        existing = [
+            {
+                "key": "CNV-100",
+                "summary": "Fix bug",
+                "labels": [],
+                "description": "",
+            },
+        ]
+        assert is_duplicate_story(
+            "Fix bug in GPU metrics controller",
+            "CNV-50",
+            existing,
+        ) is False
+
+    def test_equal_length_different_summaries_not_dup(self):
+        """Same-length but different summaries must not false-positive."""
+        existing = [
+            {
+                "key": "CNV-84407",
+                "summary": "virt-launcher GPU metrics scraping "
+                           "and Prometheus collector",
+                "labels": [],
+                "description": "",
+            },
+        ]
+        assert is_duplicate_story(
+            "Integrate GPU metrics into existing "
+            "KubeVirt/CNV dashboards",
+            "CNV-51516",
+            existing,
+        ) is False
+
 
 class TestFingerprintFormat:
     def test_create_obs_story_embeds_fingerprint(self):
@@ -588,6 +659,83 @@ class TestConfigValidation:
         }
         with pytest.raises(ValueError, match="temperature"):
             _validate_config(cfg)
+
+
+class TestBuildEpicJql:
+    """Verify JQL filter building for epic scans."""
+
+    _CFG = {
+        "jira": {
+            "default_project": "CNV",
+            "default_since_days": 30,
+            "jql_template": (
+                "project = {project} AND type = Epic"
+                " AND created >= -{since_days}d"
+            ),
+        },
+    }
+
+    def test_default_jql(self):
+        jql = build_epic_jql(self._CFG)
+        assert "project = CNV" in jql
+        assert "type = Epic" in jql
+        assert "created >= -30d" in jql
+
+    def test_custom_project_and_days(self):
+        jql = build_epic_jql(
+            self._CFG, project="OCPBUGS", since_days=7,
+        )
+        assert "project = OCPBUGS" in jql
+        assert "-7d" in jql
+
+    def test_component_filter(self):
+        jql = build_epic_jql(self._CFG, component="Virtualization")
+        assert 'component = "Virtualization"' in jql
+
+    def test_fix_version_filter(self):
+        jql = build_epic_jql(self._CFG, fix_version="4.22")
+        assert 'fixVersion = "4.22"' in jql
+
+    def test_target_version_filter(self):
+        jql = build_epic_jql(
+            self._CFG, target_version="4.22.0",
+        )
+        assert '"Target Version" = "4.22.0"' in jql
+
+    def test_single_label_filter(self):
+        jql = build_epic_jql(self._CFG, labels=["gpu"])
+        assert 'labels = "gpu"' in jql
+
+    def test_multiple_labels_filter(self):
+        jql = build_epic_jql(
+            self._CFG, labels=["gpu", "cnv-4.22"],
+        )
+        assert 'labels = "gpu"' in jql
+        assert 'labels = "cnv-4.22"' in jql
+
+    def test_all_filters_combined(self):
+        jql = build_epic_jql(
+            self._CFG,
+            project="CNV",
+            since_days=14,
+            component="Virtualization",
+            fix_version="4.22",
+            target_version="4.22.0",
+            labels=["gpu"],
+        )
+        assert "project = CNV" in jql
+        assert "-14d" in jql
+        assert 'component = "Virtualization"' in jql
+        assert 'fixVersion = "4.22"' in jql
+        assert '"Target Version" = "4.22.0"' in jql
+        assert 'labels = "gpu"' in jql
+
+    def test_no_filters_no_extra_clauses(self):
+        jql = build_epic_jql(self._CFG)
+        assert "component" not in jql
+        assert "fixVersion" not in jql
+        assert "Target Version" not in jql
+        assert "labels" not in jql
 
 
 if __name__ == "__main__":

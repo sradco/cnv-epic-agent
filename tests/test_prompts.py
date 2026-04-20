@@ -39,6 +39,45 @@ class TestSystemPrompt:
     def test_mentions_fibonacci(self):
         assert "fibonacci" in SYSTEM_PROMPT.lower()
 
+    def test_alerts_require_metric_backing(self):
+        assert "backed by" in SYSTEM_PROMPT.lower()
+        assert "metric" in SYSTEM_PROMPT.lower()
+
+    def test_dashboards_require_metric_references(self):
+        assert "dashboard" in SYSTEM_PROMPT.lower()
+        assert "metric" in SYSTEM_PROMPT.lower()
+
+    def test_sre_use_cases_mentioned(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "troubleshooting" in lowered
+        assert "capacity planning" in lowered
+        assert "health assessment" in lowered
+
+    def test_rejects_presence_check_alerts(self):
+        assert "presence check" in SYSTEM_PROMPT.lower()
+
+    def test_requires_who_benefits_section(self):
+        assert "who benefits" in SYSTEM_PROMPT.lower()
+
+    def test_requires_why_this_matters_section(self):
+        assert "why this matters" in SYSTEM_PROMPT.lower()
+
+    def test_requires_how_it_is_used_section(self):
+        assert "how it is used" in SYSTEM_PROMPT.lower()
+
+    def test_qe_split_by_test_type(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "split qe work" in lowered
+        assert "monolithic" in lowered
+
+    def test_qe_test_categories_mentioned(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "metric unit tests" in lowered
+        assert "alert rule tests" in lowered
+        assert "dashboard verification" in lowered
+        assert "end-to-end pipeline" in lowered
+        assert "upgrade/rollback" in lowered
+
 
 class TestBuildPrompt:
     def _make_analysis(self, **overrides):

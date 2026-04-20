@@ -56,6 +56,30 @@ def main() -> None:
         help="How far back to scan for epics (overrides config)",
     )
     parser.add_argument(
+        "--component",
+        default=None,
+        help="Filter epics by Jira component name",
+    )
+    parser.add_argument(
+        "--fix-version",
+        default=None,
+        help="Filter epics by fixVersion",
+    )
+    parser.add_argument(
+        "--target-version",
+        default=None,
+        help="Filter epics by Target Version",
+    )
+    parser.add_argument(
+        "--label",
+        action="append",
+        default=None,
+        help=(
+            "Filter epics by label (repeatable, "
+            "e.g. --label gpu --label cnv-4.22)"
+        ),
+    )
+    parser.add_argument(
         "--apply",
         action="store_true",
         default=False,
@@ -107,6 +131,10 @@ def main() -> None:
         epic_keys=args.epic,
         version=args.version,
         since_days=args.since_days,
+        component=args.component,
+        fix_version=args.fix_version,
+        target_version=args.target_version,
+        labels=args.label,
         apply=args.apply,
         model=args.model,
         use_llm=not args.no_llm,

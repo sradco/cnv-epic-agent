@@ -89,6 +89,42 @@ def get_jira_client(cfg: dict[str, Any]) -> JIRA:
     return JIRA(server=url, token_auth=token)
 
 
+def build_epic_jql(
+    cfg: dict[str, Any],
+    *,
+    project: str | None = None,
+    since_days: int | None = None,
+    component: str | None = None,
+    fix_version: str | None = None,
+    target_version: str | None = None,
+    labels: list[str] | None = None,
+) -> str:
+    """Build a JQL query for epic scanning with optional filters.
+
+    Each non-None filter appends an AND clause to the base template.
+    """
+    jira_cfg = cfg.get("jira", {})
+    proj = project or jira_cfg.get("default_project", "CNV")
+    days = since_days or int(jira_cfg.get("default_since_days", 30))
+    template = jira_cfg.get(
+        "jql_template",
+        "project = {project} AND type = Epic"
+        " AND created >= -{since_days}d",
+    )
+    jql = template.format(project=proj, since_days=days)
+
+    if component:
+        jql += f' AND component = "{component}"'
+    if fix_version:
+        jql += f' AND fixVersion = "{fix_version}"'
+    if target_version:
+        jql += f' AND "Target Version" = "{target_version}"'
+    if labels:
+        for label in labels:
+            jql += f' AND labels = "{label}"'
+    return jql
+
+
 @_retry_on_jira_error
 def search_epics(
     client: JIRA,
@@ -96,16 +132,22 @@ def search_epics(
     project: str | None = None,
     since_days: int | None = None,
     jql: str | None = None,
+    *,
+    component: str | None = None,
+    fix_version: str | None = None,
+    target_version: str | None = None,
+    labels: list[str] | None = None,
 ) -> list[Any]:
-    jira_cfg = cfg.get("jira", {})
     if jql is None:
-        proj = project or jira_cfg.get("default_project", "CNV")
-        days = since_days or int(jira_cfg.get("default_since_days", 30))
-        template = jira_cfg.get(
-            "jql_template",
-            "project = {project} AND type = Epic AND created >= -{since_days}d",
+        jql = build_epic_jql(
+            cfg,
+            project=project,
+            since_days=since_days,
+            component=component,
+            fix_version=fix_version,
+            target_version=target_version,
+            labels=labels,
         )
-        jql = template.format(project=proj, since_days=days)
     return _search_all(client, jql)
 
 
@@ -141,13 +183,23 @@ def fetch_epic_with_children(
 def _normalize_summary(summary: str) -> str:
     """Normalize a summary for dedup comparison.
 
-    Strips brackets, collapses whitespace, and lowercases so that
-    minor LLM rephrasing doesn't cause duplicates.
+    Strips brackets, parenthesized Jira keys, collapses whitespace,
+    and lowercases so that minor LLM rephrasing doesn't cause
+    duplicates.
     """
     s = summary.lower()
     s = re.sub(r'\[.*?\]', '', s)
+    s = re.sub(r'\([A-Z]+-\d+\)', '', s, flags=re.IGNORECASE)
     s = re.sub(r'\s+', ' ', s).strip()
     return s
+
+
+_JIRA_KEY_RE = re.compile(r'\b([A-Z]+-\d+)\b')
+
+
+def _extract_keys_from_summary(summary: str) -> set[str]:
+    """Extract any Jira issue keys embedded in a summary string."""
+    return set(_JIRA_KEY_RE.findall(summary))
 
 
 def find_existing_obs_stories(
@@ -253,15 +305,21 @@ def is_duplicate_story(
     source_epic_key: str,
     existing: list[dict[str, Any]],
 ) -> bool:
-    """Check if a story is a duplicate using fingerprint or summary.
+    """Check if a story is a duplicate using multiple strategies.
 
-    Fingerprint matching uses source_epic + summary_hash for
-    per-story uniqueness (so multiple stories in the same category
-    for the same epic are allowed).  Falls back to normalized
-    summary matching for older stories without fingerprints.
+    Matching strategies (in order):
+    1. Fingerprint: source_epic + summary_hash from description.
+    2. Exact normalized summary match.
+    3. Key reference: LLM summary embeds a Jira key (e.g.
+       "(CNV-51517)") that matches an existing child's key.
+    4. Containment: one normalized summary is wholly contained
+       within the other (minimum 20 chars on the existing
+       summary to avoid false positives on short strings;
+       equal strings are caught by strategy 2).
     """
     new_hash = _hash_summary(story_summary)
     norm_new = _normalize_summary(story_summary)
+    embedded_keys = _extract_keys_from_summary(story_summary)
 
     for e in existing:
         e_hash = _extract_summary_hash(e)
@@ -269,8 +327,18 @@ def is_duplicate_story(
         if e_source == source_epic_key and e_hash == new_hash:
             return True
 
-        if _normalize_summary(e.get("summary", "")) == norm_new:
+        norm_existing = _normalize_summary(e.get("summary", ""))
+
+        if norm_existing == norm_new:
             return True
+
+        e_key = e.get("key", "")
+        if e_key and e_key in embedded_keys:
+            return True
+
+        if norm_new != norm_existing and len(norm_existing) >= 20:
+            if norm_existing in norm_new or norm_new in norm_existing:
+                return True
 
     return False
 

@@ -100,12 +100,31 @@ def detect_feature_types(
     issues: list[IssueDoc],
     feature_type_signals: dict[str, list[str]],
 ) -> list[str]:
-    aggregate = "\n".join(issue.full_text() for issue in issues)
-    return [
-        ft
-        for ft, signals in feature_type_signals.items()
-        if any(s.lower() in aggregate for s in signals)
-    ]
+    """Detect feature types from the epic and child issues.
+
+    Uses the epic summary/description as primary evidence.
+    Child issues contribute only via multi-word signals
+    (e.g. "live migration") to avoid false positives from
+    generic single words like "controller" or "operator"
+    appearing in unrelated child contexts.
+    """
+    if not issues:
+        return []
+
+    epic_text = issues[0].full_text()
+    child_text = "\n".join(issue.full_text() for issue in issues[1:])
+
+    detected: list[str] = []
+    for ft, signals in feature_type_signals.items():
+        for s in signals:
+            s_lower = s.lower()
+            if s_lower in epic_text:
+                detected.append(ft)
+                break
+            if " " in s_lower and s_lower in child_text:
+                detected.append(ft)
+                break
+    return detected
 
 
 _STOPWORDS = frozenset({
@@ -171,6 +190,7 @@ def propose_for_categories(
     inventory: Any = None,
     issues: list[IssueDoc] | None = None,
     patterns_cfg: dict[str, Any] | None = None,
+    all_coverage_categories: list[str] | None = None,
 ) -> dict[str, dict[str, list[dict[str, str]]]]:
     """Propose observability items for each missing category.
 
@@ -183,6 +203,11 @@ def propose_for_categories(
 
     ``proposed`` — new instrumentation suggestions derived from
     observability patterns, with rationale and user-action guidance.
+
+    Alert and dashboard proposals are only kept when backing metrics
+    exist — either in the inventory or as proposed new metrics.  This
+    prevents generating ungrounded alerts/dashboards that reference
+    metrics no one has implemented.
     """
     proposals: dict[str, dict[str, list[dict[str, str]]]] = {}
 
@@ -201,7 +226,51 @@ def propose_for_categories(
 
         proposals[category] = {"existing": existing, "proposed": proposed}
 
+    has_metrics = _has_metric_backing(
+        proposals, inventory, domain_keywords,
+        all_coverage_categories or [],
+    )
+    if not has_metrics:
+        for cat in ("alerts", "dashboards"):
+            if cat in proposals:
+                proposals[cat]["proposed"] = []
+
     return proposals
+
+
+def _has_metric_backing(
+    proposals: dict[str, dict[str, list[dict[str, str]]]],
+    inventory: Any,
+    domain_keywords: list[str],
+    all_coverage_categories: list[str],
+) -> bool:
+    """Check if there are relevant metrics to back alerts/dashboards.
+
+    Returns True when *any* of the following hold:
+    - The epic already has metrics coverage (metrics not in gaps).
+    - The proposals include new metric proposals.
+    - The inventory contains domain-relevant existing metrics.
+    """
+    if "metrics" not in [
+        cat for cat, data in proposals.items()
+        if cat == "metrics"
+    ]:
+        if "metrics" in all_coverage_categories:
+            return True
+
+    metric_data = proposals.get("metrics", {})
+    if metric_data.get("proposed"):
+        return True
+    if metric_data.get("existing"):
+        return True
+
+    if inventory and hasattr(inventory, "metrics") and domain_keywords:
+        for m in inventory.metrics:
+            combined = f"{m.name} {m.help}".lower()
+            if any(kw in combined for kw in domain_keywords):
+                return True
+
+    return False
 
 
 def _matched_keyword(name: str, extra: str, keywords: list[str]) -> str:
@@ -542,12 +611,17 @@ def build_analysis_result(
 
     patterns_cfg = cfg.get("observability_patterns", {})
 
+    covered_categories = [
+        cat for cat, data in coverage.items() if data.get("present")
+    ]
+
     proposals = propose_for_categories(
         missing_categories=missing,
         feature_types=feature_types,
         inventory=inventory,
         issues=issue_set,
         patterns_cfg=patterns_cfg,
+        all_coverage_categories=covered_categories,
     )
 
     discovered_dashboards = []
