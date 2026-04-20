@@ -192,10 +192,17 @@ in the "Analysis findings" section:
 condition or a closely related one (e.g. unhealthy VM status), \
 do NOT propose a duplicate or overlapping alert.
   * **Metrics**: if an existing metric already tracks the same \
-measurement, do NOT propose a new metric for it.
+measurement (even via a different label combination), do NOT \
+propose a new metric. If the need is for aggregation or a \
+different view of existing data, propose a **recording rule** \
+instead of a new metric.
   * **Dashboards / panels**: if an existing dashboard panel \
 already visualizes the data you would propose, do NOT propose \
 a new panel for it. Check panel names and PromQL queries.
+- When assessing resource health (e.g. VM status), consider \
+the full picture: existing metrics AND existing alerts. Do \
+not propose new metrics for data that can be derived from \
+existing metrics via PromQL or recording rules.
 - Only propose metrics and alerts for resources the component \
 **owns or directly controls**. If the component merely reads \
 an external CR or config (e.g. an OpenShift platform CR like \
