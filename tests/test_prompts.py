@@ -149,6 +149,21 @@ class TestGetSystemPromptWithDocs:
         assert "nothing else" in lowered
         assert '"why this is needed"' in lowered
 
+    def test_docs_no_docs_for_new_metrics(self):
+        lowered = get_system_prompt(["docs"]).lower()
+        assert "new metrics" in lowered
+        assert "do not need documentation" in lowered
+
+    def test_docs_deprecation_notice_for_name_changes(self):
+        lowered = get_system_prompt(["docs"]).lower()
+        assert "name change" in lowered
+        assert "deprecation notice" in lowered
+
+    def test_docs_alert_runbook_review_per_version(self):
+        lowered = get_system_prompt(["docs"]).lower()
+        assert "runbook" in lowered
+        assert "one docs story per version" in lowered
+
     def test_docs_rules_not_injected_without_docs(self):
         lowered = get_system_prompt(["metrics"]).lower()
         assert "user-facing feature" not in lowered

@@ -236,6 +236,14 @@ Docs story rules:
 - Only when the epic introduces a new user-facing feature, \
 changes behavior, renames concepts, or modifies APIs/CLI/UI.
 - Internal refactoring or backend-only changes do NOT need docs.
+- New metrics and recording rules do NOT need documentation. \
+The only exception is a metric or recording rule **name change** \
+— in that case propose a docs story for a deprecation notice \
+listing the old and new name.
+- For alerts: the docs team reviews new and updated alert \
+runbooks. Propose one docs story per version in the metrics \
+backlog epic to cover runbook review for all alerts in that \
+version. Do NOT create a separate docs story per alert.
 - Description format: a short plain-text paragraph describing \
 what needs to be documented, followed by an acceptance \
 criteria checklist. Nothing else. Do NOT add sections like \
