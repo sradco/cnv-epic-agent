@@ -212,6 +212,15 @@ def _dedup_and_create(
             lines.append(
                 f"- WOULD CREATE: {story.summary}{sp_tag}"
             )
+            lines.append("")
+            lines.append(
+                f"  **Category:** {story.category}"
+            )
+            if story.description:
+                lines.append("")
+                for desc_line in story.description.splitlines():
+                    lines.append(f"  > {desc_line}")
+            lines.append("")
     return lines
 
 
@@ -467,13 +476,24 @@ def run(
         )
         report_lines.append("")
 
+        epic_labels = set(result.get("epic_labels", []))
+        epic_categories = list(enabled_categories)
+        if "no-doc" in epic_labels:
+            epic_categories = [
+                c for c in epic_categories if c != "docs"
+            ]
+        if "no-qe" in epic_labels:
+            epic_categories = [
+                c for c in epic_categories if c != "qe"
+            ]
+
         if use_llm:
             try:
                 stories = compose_stories(
                     result,
                     model=model,
                     temperature=temperature,
-                    categories=enabled_categories,
+                    categories=epic_categories,
                     category_guidance=category_guidance,
                     story_points_guidance=story_points_guidance,
                 )
@@ -507,6 +527,7 @@ def run(
                     description=p["description"],
                 )
                 for p in payloads
+                if p["category"] in epic_categories
             ]
 
         if not stories:

@@ -47,6 +47,32 @@ class TestSystemPrompt:
         assert "dashboard" in SYSTEM_PROMPT.lower()
         assert "metric" in SYSTEM_PROMPT.lower()
 
+    def test_dashboards_prefer_existing_over_new(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "existing dashboards" in lowered
+        assert "new standalone dashboards" in lowered
+
+    def test_dashboards_reject_internal_component_dashboards(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "internal component" in lowered
+        assert "operator workflow" in lowered
+
+    def test_allows_empty_stories_for_refactoring_epics(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "empty stories list" in lowered
+        assert "internal refactoring" in lowered
+        assert "do not invent stories just to fill a gap" in lowered
+
+    def test_docs_only_for_user_facing_changes(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "user-facing" in lowered
+        assert "internal refactoring" in lowered
+
+    def test_no_doc_no_qe_label_handling(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "no-doc" in lowered
+        assert "no-qe" in lowered
+
     def test_sre_use_cases_mentioned(self):
         lowered = SYSTEM_PROMPT.lower()
         assert "troubleshooting" in lowered
@@ -77,6 +103,12 @@ class TestSystemPrompt:
         assert "dashboard verification" in lowered
         assert "end-to-end pipeline" in lowered
         assert "upgrade/rollback" in lowered
+
+    def test_qe_distinguishes_new_vs_migrated(self):
+        lowered = SYSTEM_PROMPT.lower()
+        assert "genuinely new" in lowered
+        assert "moved or refactored" in lowered
+        assert "renamed" in lowered
 
 
 class TestBuildPrompt:
@@ -119,6 +151,20 @@ class TestBuildPrompt:
         }
         base.update(overrides)
         return base
+
+    def test_includes_epic_labels(self):
+        analysis = self._make_analysis(
+            epic_labels=["no-doc", "cnv-4.23"],
+        )
+        prompt = build_story_composition_prompt(analysis)
+        assert "no-doc" in prompt
+        assert "cnv-4.23" in prompt
+        assert "Epic labels:" in prompt
+
+    def test_no_labels_section_when_empty(self):
+        analysis = self._make_analysis(epic_labels=[])
+        prompt = build_story_composition_prompt(analysis)
+        assert "Epic labels:" not in prompt
 
     def test_includes_epic_description(self):
         analysis = self._make_analysis()

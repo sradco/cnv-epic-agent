@@ -676,6 +676,7 @@ def build_analysis_result(
         "epic_key": epic.key,
         "epic_summary": epic.summary,
         "epic_description": epic.description,
+        "epic_labels": epic.labels or [],
         "child_issues": child_issues_data,
         "domain_keywords": domain_keywords,
         "need_state": need["need_state"],

@@ -18,10 +18,12 @@ class IssueDoc:
     summary: str
     description: str
     issue_type: str = ""
+    labels: list[str] | None = None
 
     @classmethod
     def from_jira(cls, issue: Any) -> "IssueDoc":
         fields = issue.fields if hasattr(issue, "fields") else issue
+        raw_labels = getattr(fields, "labels", None) or []
         return cls(
             key=str(getattr(issue, "key", "") or issue.get("key", "")),
             summary=str(getattr(fields, "summary", "") or ""),
@@ -30,6 +32,7 @@ class IssueDoc:
                 getattr(getattr(fields, "issuetype", None), "name", "")
                 or ""
             ),
+            labels=list(raw_labels),
         )
 
     @classmethod
@@ -39,6 +42,7 @@ class IssueDoc:
             summary=str(payload.get("summary", "")),
             description=str(payload.get("description", "")),
             issue_type=str(payload.get("issue_type", "")),
+            labels=payload.get("labels"),
         )
 
     def full_text(self) -> str:

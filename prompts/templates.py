@@ -149,6 +149,15 @@ rate over the last 24h")
 OpenShift Virtualization operator itself to make automated \
 scheduling or remediation decisions
 
+It is perfectly fine to return an empty stories list if the \
+epic does not warrant new observability work. Not every epic \
+needs new metrics, alerts, or dashboards. Internal refactoring \
+epics (e.g. moving code between repos, restructuring how \
+metrics are generated without changing the metrics themselves) \
+typically need zero new observability stories — the existing \
+metrics, alerts, and dashboards should continue working \
+unchanged. Do NOT invent stories just to fill a gap.
+
 Do NOT propose:
 - "Presence check" alerts that merely verify a metric exists \
 or a component is running — those belong in QE/CI, not \
@@ -158,6 +167,10 @@ uses (e.g. GPU) unless the alert fires only when the feature \
 is actively enabled and in use.
 - Observability items whose only consumer would be a test \
 pipeline rather than a human operator or the virt operator.
+- Stories for epics that only restructure internal code without \
+changing user-facing metrics, APIs, or behavior — unless the \
+restructuring genuinely introduces new failure modes that \
+operators need visibility into.
 
 Rules:
 - Observability stories: explain *why* the instrumentation \
@@ -168,9 +181,18 @@ kubevirt_<component>_<noun>_<unit> naming, CamelCase alert names.
 proposed in this epic). Name the metric in the description. \
 Do NOT propose alerts for metrics that don't exist yet unless \
 the same run also proposes those metrics.
-- Dashboards MUST reference specific metrics or recording rules. \
-Do NOT propose generic dashboard panels without naming the \
-metrics they will visualize.
+- Dashboards must serve a real operator workflow — ask "would a \
+customer open this dashboard during an incident, capacity \
+planning session, or health review?" Do NOT propose dashboards \
+for internal component internals (e.g. "controller health") \
+that no customer would look at. Prefer adding panels to \
+existing dashboards (e.g. VM Overview, Storage Overview) over \
+creating new standalone dashboards. A new dashboard is only \
+justified when the feature introduces a genuinely new domain \
+(e.g. GPU workloads) that doesn't fit any existing dashboard. \
+Every dashboard story MUST reference specific metrics or \
+recording rules — do NOT propose generic panels without naming \
+the metrics they will visualize.
 - Do NOT duplicate work already tracked as child issues of the \
 source epic. If a child issue already covers a topic, skip it.
 - For each observability story description, include these sections: \
@@ -178,26 +200,47 @@ source epic. If a child issue already covers a topic, skip it.
 **Who benefits** (cluster operator / SRE / virt-operator), \
 **How it is used** (concrete scenario: alert threshold, dashboard \
 panel, operator decision).
-- Docs stories: only when epic changes user-facing behavior/APIs.
+- Docs stories: only when the epic introduces a new user-facing \
+feature, changes user-facing behavior, renames concepts, or \
+modifies APIs/CLI/UI. Internal refactoring, code moves between \
+repos, or backend-only changes do NOT need docs stories.
+- If the epic has a **no-doc** label, do NOT produce any docs \
+stories. If the epic has a **no-qe** label, do NOT produce \
+any QE stories. These labels override all other guidance.
 - QE stories: take a QE engineer role. Split QE work into \
 multiple stories by test type / scope. Group related tests of \
 the same type into one story (e.g. one story for all new metric \
 unit tests, one for alert rule validation, one for dashboard \
 panel verification, one for end-to-end manual verifications). \
 Each QE story description must list the specific test cases \
-as checklist items. Consider these test categories:
-  * **Metric unit tests** (automated): verify each new metric \
-is registered, exposed on /metrics, has correct type/labels, \
-emits expected values under known conditions.
-  * **Alert rule tests** (automated): verify PrometheusRule \
-fires correctly against sample data, severity and runbook_url \
-are set, alert resolves when condition clears.
+as checklist items.
+Important: distinguish between **new** and **migrated** \
+observability items:
+  * Metrics/alerts/dashboards that are being **moved or \
+refactored** (same names, same behavior, different component) \
+are assumed to already have automated tests. Do NOT propose \
+new unit tests for them — only propose end-to-end and \
+upgrade/rollback verification to ensure nothing broke.
+  * If a metric is **renamed** during migration, propose a \
+story to update existing automated tests and any alert \
+expressions that reference the old name.
+  * Only propose metric unit tests and alert rule tests for \
+**genuinely new** metrics or alerts that did not exist before.
+Consider these test categories:
+  * **Metric unit tests** (automated): ONLY for genuinely new \
+metrics. Verify registration, exposure on /metrics, correct \
+type/labels, and expected values under known conditions.
+  * **Alert rule tests** (automated): ONLY for genuinely new \
+alerts. Verify PrometheusRule fires correctly against sample \
+data, severity and runbook_url are set, alert resolves when \
+condition clears.
   * **Dashboard verification** (manual + automated): verify \
 panels render with sample data, queries return expected results, \
 no broken panels after upgrade.
   * **End-to-end pipeline tests** (manual): verify the full \
 observability pipeline works in a real cluster — metrics \
-scraped, alerts fire, dashboards populated.
+scraped, alerts fire, dashboards populated. This is the key \
+QE story for architectural changes and migrations.
   * **Upgrade/rollback verification** (manual): verify \
 metrics/alerts/dashboards survive an upgrade and rollback \
 without data loss or broken panels.
@@ -239,6 +282,11 @@ def build_story_composition_prompt(
         f"# Epic: {analysis['epic_key']} — {analysis['epic_summary']}"
     )
     parts.append("")
+
+    epic_labels = analysis.get("epic_labels", [])
+    if epic_labels:
+        parts.append(f"## Epic labels: {', '.join(epic_labels)}")
+        parts.append("")
 
     if analysis.get("epic_description"):
         parts.append("## Epic description")

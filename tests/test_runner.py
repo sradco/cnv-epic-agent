@@ -126,6 +126,8 @@ class TestRunnerDryRun:
         assert "CNV-100" in report
         assert "Run ID:" in report
         assert "(3sp)" in report
+        assert "Description here" in report
+        assert "**Category:** metrics" in report
 
     @patch("agent.runner._load_config")
     @patch("agent.runner.get_jira_client")
@@ -473,6 +475,95 @@ class TestChildrenAsDedup:
         from agent.runner import _children_as_dedup_entries
 
         assert _children_as_dedup_entries([]) == []
+
+
+class TestLabelBasedCategoryFiltering:
+    """Verify that no-doc / no-qe labels remove categories."""
+
+    @patch("agent.runner._load_config")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.build_all_inventories", return_value={})
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner.build_analysis_result")
+    @patch("agent.runner.compose_stories")
+    @patch("agent.runner.find_or_create_obs_epic")
+    @patch("agent.runner.find_existing_obs_stories", return_value=[])
+    def test_no_doc_label_skips_docs_stories(
+        self,
+        mock_find_existing,
+        mock_find_epic,
+        mock_compose,
+        mock_analysis,
+        mock_fetch,
+        mock_inv,
+        mock_jira,
+        mock_config,
+    ):
+        from agent.runner import run
+        from schemas.stories import StoryPayload
+
+        cfg = _minimal_cfg()
+        cfg["agent"]["enabled_categories"] = [
+            "metrics", "docs", "qe",
+        ]
+        mock_config.return_value = cfg
+        mock_jira.return_value = MagicMock()
+
+        epic = _fake_jira_issue("CNV-200", "Internal refactor")
+        mock_jira.return_value.issue.return_value = epic
+
+        from schemas.issue_doc import IssueDoc
+        mock_fetch.return_value = (
+            IssueDoc(
+                key="CNV-200", summary="Internal refactor",
+                description="Move code", labels=["no-doc"],
+            ),
+            [],
+        )
+        mock_analysis.return_value = {
+            "epic_key": "CNV-200",
+            "epic_summary": "Internal refactor",
+            "epic_description": "Move code",
+            "epic_labels": ["no-doc"],
+            "child_issues": [],
+            "domain_keywords": [],
+            "need_state": "needed",
+            "need_confidence": "high",
+            "gaps": ["metrics"],
+            "feature_types": [],
+            "proposals": {},
+            "dashboard_targets": [],
+            "telemetry_suggestions": [],
+            "recommended_action": "create now",
+            "apply_allowed": True,
+            "would_create_count": 1,
+        }
+        mock_compose.return_value = [
+            StoryPayload(
+                category="metrics",
+                summary="[Observability] Add metric",
+                description="desc",
+                story_points=3,
+            ),
+        ]
+        mock_find_epic.return_value = {
+            "key": "(DRY-RUN)",
+            "summary": "Obs epic",
+            "created": False,
+        }
+
+        report = run(
+            epic_keys=["CNV-200"],
+            version="4.23",
+            apply=False,
+            use_llm=True,
+        )
+
+        call_args = mock_compose.call_args
+        categories_passed = call_args.kwargs.get("categories")
+        assert "docs" not in categories_passed
+        assert "metrics" in categories_passed
+        assert "qe" in categories_passed
 
 
 class TestRunnerConfigValidation:
