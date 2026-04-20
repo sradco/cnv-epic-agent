@@ -383,7 +383,6 @@ class TestFullPipeline:
         assert result["need_state"] == "needed"
         assert len(result["gaps"]) > 0
         assert len(result["proposals"]) > 0
-        assert result["apply_allowed"] is True
         assert result["would_create_count"] > 0
         assert result["recommended_action"] == "create now"
 
@@ -395,7 +394,6 @@ class TestFullPipeline:
         result = build_analysis_result(epic, children, cfg)
 
         assert result["need_state"] in ("not_needed", "uncertain")
-        assert result["apply_allowed"] is True
         assert result["recommended_action"] in ("create now", "no gaps found")
 
     def test_proposals_have_two_section_structure(self):
@@ -500,7 +498,7 @@ class TestAnalysisDataOutput:
         assert "child_issues" in result
         assert "domain_keywords" in result
 
-    def test_includes_epic_components_and_associated_repos(self):
+    def test_includes_epic_components(self):
         epic = IssueDoc(
             key="CNV-100",
             summary="Test epic",
@@ -511,22 +509,6 @@ class TestAnalysisDataOutput:
         result = build_analysis_result(epic, [], cfg)
 
         assert result["epic_components"] == ["CNV Virtualization"]
-        assert "https://github.com/kubevirt/kubevirt" in result[
-            "associated_repos"
-        ]
-
-    def test_unknown_component_yields_empty_repos(self):
-        epic = IssueDoc(
-            key="CNV-101",
-            summary="Test epic",
-            description="desc",
-            components=["Unknown Component"],
-        )
-        cfg = _load_config()
-        result = build_analysis_result(epic, [], cfg)
-
-        assert result["epic_components"] == ["Unknown Component"]
-        assert result["associated_repos"] == []
 
     def test_no_components_yields_empty(self):
         epic = IssueDoc(
@@ -538,7 +520,6 @@ class TestAnalysisDataOutput:
         result = build_analysis_result(epic, [], cfg)
 
         assert result["epic_components"] == []
-        assert result["associated_repos"] == []
 
 
 class TestFeatureTypeDetectionTightened:

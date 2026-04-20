@@ -658,8 +658,6 @@ def build_analysis_result(
         "create now" if missing else "no gaps found"
     )
 
-    apply_allowed = True
-
     domain_keywords = extract_domain_keywords(issue_set)
 
     child_issues_data = [
@@ -668,10 +666,6 @@ def build_analysis_result(
     ]
 
     epic_components = epic.components or []
-    component_repo_map = cfg.get("discovery", {}).get("component_repo_map", {})
-    associated_repos: list[str] = []
-    for comp in epic_components:
-        associated_repos.extend(component_repo_map.get(comp, []))
 
     return {
         "epic_key": epic.key,
@@ -679,7 +673,6 @@ def build_analysis_result(
         "epic_description": epic.description,
         "epic_labels": epic.labels or [],
         "epic_components": epic_components,
-        "associated_repos": associated_repos,
         "child_issues": child_issues_data,
         "domain_keywords": domain_keywords,
         "need_state": need["need_state"],
@@ -696,6 +689,5 @@ def build_analysis_result(
         "dashboard_targets": dashboard_target_list,
         "telemetry_suggestions": telemetry_suggestions,
         "recommended_action": recommended_action,
-        "apply_allowed": apply_allowed,
         "would_create_count": len(missing),
     }

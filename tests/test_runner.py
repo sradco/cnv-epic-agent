@@ -110,7 +110,7 @@ class TestRunnerDryRun:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "create now",
-            "apply_allowed": True,
+
             "would_create_count": 1,
         }
         mock_compose.return_value = [
@@ -191,7 +191,7 @@ class TestRunnerDryRun:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "create now",
-            "apply_allowed": True,
+
             "would_create_count": 1,
         }
         mock_compose.side_effect = LLMError("timeout after 600s")
@@ -260,7 +260,7 @@ class TestRunnerDryRun:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "create now",
-            "apply_allowed": True,
+
             "would_create_count": 1,
         }
         mock_compose.return_value = [
@@ -355,7 +355,7 @@ class TestChildrenCrossCheck:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "create now",
-            "apply_allowed": True,
+
             "would_create_count": 1,
         }
         mock_compose.return_value = [
@@ -446,7 +446,7 @@ class TestChildrenCrossCheck:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "create now",
-            "apply_allowed": True,
+
             "would_create_count": 1,
         }
         mock_compose.return_value = [
@@ -568,7 +568,7 @@ class TestLabelBasedCategoryFiltering:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "create now",
-            "apply_allowed": True,
+
             "would_create_count": 1,
         }
         mock_compose.return_value = [
@@ -805,7 +805,6 @@ class TestLLMClarityCheck:
             "epic_description": _LONG_DESC,
             "epic_labels": [],
             "epic_components": [],
-            "associated_repos": [],
             "child_issues": [],
             "domain_keywords": [],
             "need_state": "not_needed",
@@ -816,7 +815,7 @@ class TestLLMClarityCheck:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "no gaps found",
-            "apply_allowed": True,
+
             "would_create_count": 0,
         }
         mock_compose.return_value = []
@@ -879,7 +878,6 @@ class TestLLMClarityCheck:
             "epic_description": _LONG_DESC,
             "epic_labels": [],
             "epic_components": [],
-            "associated_repos": [],
             "child_issues": [],
             "domain_keywords": [],
             "need_state": "not_needed",
@@ -890,7 +888,7 @@ class TestLLMClarityCheck:
             "dashboard_targets": [],
             "telemetry_suggestions": [],
             "recommended_action": "no gaps found",
-            "apply_allowed": True,
+
             "would_create_count": 0,
         }
         mock_compose.return_value = []

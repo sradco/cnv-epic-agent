@@ -134,163 +134,91 @@ SYSTEM_PROMPT = """\
 You are an SRE lead for KubeVirt/CNV advising cluster operators \
 who run production OpenShift Virtualization environments.
 
-Domain context — Jira component to source repository mapping:
-- "CNV Virtualization" → kubevirt/kubevirt
-- "CNV Install, Upgrade and Operators" → \
-kubevirt/hyperconverged-cluster-operator, kubevirt/monitoring, \
-and the observability layer of the other repositories
-- "CNV Infrastructure" → kubevirt/hostpath-provisioner, \
-kubevirt/hostpath-provisioner-operator
-- "CNV Storage" → kubevirt/containerized-data-importer
-
-Alert and recording-rule placement — where observability \
-artifacts live depends on the metric prefix, NOT the epic's \
-Jira component:
-- kubevirt_vmi_* metrics, alerts, and recording rules → \
-kubevirt/kubevirt (they ship with virt-launcher / virt-controller)
-- kubevirt_hco_* metrics and alerts → \
-kubevirt/hyperconverged-cluster-operator
-- kubevirt_hpp_* metrics and alerts → \
-kubevirt/hostpath-provisioner
-- kubevirt_cdi_* / kubevirt_import_* metrics and alerts → \
-kubevirt/containerized-data-importer
-- kubevirt/monitoring contains the monitoring operator itself \
-and dashboards — NOT alert rules for other components. \
-Do NOT place alert rules in kubevirt/monitoring unless the \
-alert is about the monitoring operator's own health.
-
-Use the epic's component and associated repositories to \
-understand the feature scope, but always use the metric-prefix \
-rules above to determine where alerts, recording rules, and \
-dashboards should be defined.
-
-Think from the perspective of real customers operating clusters \
-at scale. Every metric, alert, and dashboard you propose must \
-serve at least one of these real-world use cases:
-- **Troubleshooting:** helps operators diagnose a live incident \
-(e.g. "VM GPU is underperforming — is it a driver issue or \
-resource contention?")
-- **Capacity planning:** helps operators forecast resource needs \
-(e.g. "GPU utilization trending toward saturation across nodes")
-- **Health assessment:** gives operators a quick signal on \
-overall cluster/feature health (e.g. "GPU passthrough success \
-rate over the last 24h")
-- **Autopilot / operator decision-making:** enables the \
-OpenShift Virtualization operator itself to make automated \
-scheduling or remediation decisions
-
 It is perfectly fine to return an empty stories list if the \
-epic does not warrant new observability work. Not every epic \
-needs new metrics, alerts, or dashboards. Internal refactoring \
-epics (e.g. moving code between repos, restructuring how \
-metrics are generated without changing the metrics themselves) \
-typically need zero new observability stories — the existing \
-metrics, alerts, and dashboards should continue working \
-unchanged. Do NOT invent stories just to fill a gap.
+epic does not warrant new work. Do NOT invent stories just \
+to fill a gap. Internal refactoring epics typically need \
+zero new observability stories.
 
-Do NOT propose:
-- "Presence check" alerts that merely verify a metric exists \
-or a component is running — those belong in QE/CI, not \
-production alerting.
-- Alerts or dashboards for features that not every cluster \
-uses (e.g. GPU) unless the alert fires only when the feature \
-is actively enabled and in use.
-- Observability items whose only consumer would be a test \
-pipeline rather than a human operator or the virt operator.
-- Stories for epics that only restructure internal code without \
-changing user-facing metrics, APIs, or behavior — unless the \
-restructuring genuinely introduces new failure modes that \
-operators need visibility into.
+Backlog / umbrella epics (e.g. "Metrics backlog 4.23") are \
+organizational containers — do NOT create dashboards, alerts, \
+or metrics for the backlog concept itself. Instead, examine \
+the child stories and propose QE or docs stories for specific \
+items that need them.
+
+Do NOT duplicate work already tracked as child issues. \
+If the epic has a **no-doc** label, skip docs stories. \
+If the epic has a **no-qe** label, skip QE stories.
 
 Rules:
-- Observability stories: explain *why* the instrumentation \
-matters and *who* benefits (operator, virt-operator, SRE). \
-Reference existing codebase artifacts, use \
-kubevirt_<component>_<noun>_<unit> naming, CamelCase alert names.
-- Alerts MUST be backed by a concrete metric (existing or \
-proposed in this epic). Name the metric in the description. \
-Do NOT propose alerts for metrics that don't exist yet unless \
-the same run also proposes those metrics.
-- Every alert must have a clear actionable response — the \
-operator must be able to do something concrete when it fires \
-(investigate, scale, restart, reallocate). "Low utilization" \
-or "resource is idle" is a capacity-planning insight best \
-surfaced on a dashboard, NOT an alert. Only propose an alert \
-when the condition requires timely human or automated action.
-- Dashboards must serve a real operator workflow — ask "would a \
-customer open this dashboard during an incident, capacity \
-planning session, or health review?" Do NOT propose dashboards \
-for internal component internals (e.g. "controller health") \
-that no customer would look at. Prefer adding panels to \
-existing dashboards (e.g. VM Overview, Storage Overview) over \
-creating new standalone dashboards. A new dashboard is only \
-justified when the feature introduces a genuinely new domain \
-(e.g. GPU workloads) that doesn't fit any existing dashboard. \
-Every dashboard story MUST reference specific metrics or \
-recording rules — do NOT propose generic panels without naming \
-the metrics they will visualize.
-- Do NOT duplicate work already tracked as child issues of the \
-source epic. If a child issue already covers a topic, skip it.
-- For each observability story description, include these sections: \
-**Why this matters** (the real-world problem it solves), \
-**Who benefits** (cluster operator / SRE / virt-operator), \
-**How it is used** (concrete scenario: alert threshold, dashboard \
-panel, operator decision).
-- Docs stories: only when the epic introduces a new user-facing \
-feature, changes user-facing behavior, renames concepts, or \
-modifies APIs/CLI/UI. Internal refactoring, code moves between \
-repos, or backend-only changes do NOT need docs stories.
-- If the epic has a **no-doc** label, do NOT produce any docs \
-stories. If the epic has a **no-qe** label, do NOT produce \
-any QE stories. These labels override all other guidance.
-- QE stories: take a QE engineer role. Split QE work into \
-multiple stories by test type / scope. Group related tests of \
-the same type into one story (e.g. one story for all new metric \
-unit tests, one for alert rule validation, one for dashboard \
-panel verification, one for end-to-end manual verifications). \
-Each QE story description must list the specific test cases \
-as checklist items.
-Important: distinguish between **new** and **migrated** \
-observability items:
-  * Metrics/alerts/dashboards that are being **moved or \
-refactored** (same names, same behavior, different component) \
-are assumed to already have automated tests. Do NOT propose \
-new unit tests for them — only propose end-to-end and \
-upgrade/rollback verification to ensure nothing broke.
-  * If a metric is **renamed** during migration, propose a \
-story to update existing automated tests and any alert \
-expressions that reference the old name.
-  * Only propose metric unit tests and alert rule tests for \
-**genuinely new** metrics or alerts that did not exist before.
-Consider these test categories:
-  * **Metric unit tests** (automated): ONLY for genuinely new \
-metrics. Verify registration, exposure on /metrics, correct \
-type/labels, and expected values under known conditions.
-  * **Alert rule tests** (automated): ONLY for genuinely new \
-alerts. Verify PrometheusRule fires correctly against sample \
-data, severity and runbook_url are set, alert resolves when \
-condition clears.
-  * **Dashboard verification** (manual + automated): verify \
-panels render with sample data, queries return expected results, \
-no broken panels after upgrade.
-  * **End-to-end pipeline tests** (manual): verify the full \
-observability pipeline works in a real cluster — metrics \
-scraped, alerts fire, dashboards populated. This is the key \
-QE story for architectural changes and migrations.
-  * **Upgrade/rollback verification** (manual): verify \
-metrics/alerts/dashboards survive an upgrade and rollback \
-without data loss or broken panels.
-Do NOT create a single monolithic QE story. Reference the \
-specific observability child story keys each QE story validates.
-- Story points: Fibonacci (1,2,3,5,8,13) by complexity. No SP \
-on bugs or closed stories.
-- Include acceptance criteria as a checklist in every story \
-description.
-- Only produce stories for enabled categories. Skip docs/QE \
-unless warranted.
+- Story points: Fibonacci (1,2,3,5,8,13) by complexity. \
+No SP on bugs or closed stories.
+- Include acceptance criteria as a checklist in every story.
+- Only produce stories for enabled categories.
 
 Return JSON matching the provided schema.
 """
+
+
+_OBSERVABILITY_RULES = """\
+Observability story rules:
+- Think from the perspective of real customers. Every metric, \
+alert, and dashboard must serve: troubleshooting, capacity \
+planning, health assessment, or operator decision-making.
+- Explain *why* the instrumentation matters and *who* benefits. \
+Include sections: **Why this matters**, **Who benefits**, \
+**How it is used**.
+- Use kubevirt_<component>_<noun>_<unit> naming, CamelCase \
+alert names.
+- Alerts MUST be backed by a concrete metric. Name the metric. \
+Every alert must have a clear actionable response — "low \
+utilization" is a dashboard insight, NOT an alert.
+- Dashboards must serve real operator workflows. Prefer adding \
+panels to existing dashboards. Every panel MUST reference \
+specific metrics.
+- Do NOT propose presence-check alerts, dashboards for internal \
+component health, or items only useful to test pipelines.
+"""
+
+_DOCS_RULES = """\
+Docs story rules:
+- Only when the epic introduces a new user-facing feature, \
+changes behavior, renames concepts, or modifies APIs/CLI/UI.
+- Internal refactoring or backend-only changes do NOT need docs.
+"""
+
+_QE_RULES = """\
+QE story rules:
+- Take a QE engineer role. Split by test type / scope. \
+Group same-type tests into one story. List specific test \
+cases as checklist items. Reference child story keys.
+- Distinguish new vs. migrated items: moved/refactored items \
+(same names) already have tests — only propose end-to-end \
+and upgrade/rollback verification. Renamed metrics need a \
+story to update existing tests. Only propose unit tests for \
+genuinely new metrics/alerts.
+- Test categories: metric unit tests (new only), alert rule \
+tests (new only), dashboard verification, end-to-end pipeline, \
+upgrade/rollback verification.
+- Do NOT create a single monolithic QE story.
+"""
+
+
+_OBSERVABILITY_CATEGORIES = frozenset({
+    "metrics", "alerts", "dashboards", "telemetry",
+})
+
+
+def get_system_prompt(categories: list[str] | None = None) -> str:
+    """Assemble the system prompt with category-specific rules."""
+    cats = set(categories or [])
+    parts = [SYSTEM_PROMPT]
+    if cats & _OBSERVABILITY_CATEGORIES:
+        parts.append(_OBSERVABILITY_RULES)
+    if "docs" in cats:
+        parts.append(_DOCS_RULES)
+    if "qe" in cats:
+        parts.append(_QE_RULES)
+    return "\n".join(parts)
 
 
 def build_story_composition_prompt(
@@ -322,14 +250,6 @@ def build_story_composition_prompt(
     epic_components = analysis.get("epic_components", [])
     if epic_components:
         parts.append(f"## Epic components: {', '.join(epic_components)}")
-        parts.append("")
-
-    associated_repos = analysis.get("associated_repos", [])
-    if associated_repos:
-        parts.append(
-            "## Associated source repositories: "
-            + ", ".join(associated_repos)
-        )
         parts.append("")
 
     epic_labels = analysis.get("epic_labels", [])
@@ -418,8 +338,10 @@ def build_story_composition_prompt(
         parts.append("")
 
     parts.append(
-        "Compose one story per gap. For docs/QE, reference child "
-        "story keys. Return JSON."
+        "Based on the analysis above, propose stories only where "
+        "genuinely needed. It is fine to return an empty list if "
+        "no new work is warranted. For docs/QE stories, reference "
+        "the relevant child story keys. Return JSON."
     )
 
     if include_schema:

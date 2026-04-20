@@ -570,11 +570,6 @@ def run(
             report_lines.append(
                 f"Components: {', '.join(epic_components)}"
             )
-        associated_repos = result.get("associated_repos", [])
-        if associated_repos:
-            report_lines.append(
-                f"Repos: {', '.join(associated_repos)}"
-            )
         report_lines.append(
             f"Gaps: {', '.join(result.get('gaps', []))}"
         )

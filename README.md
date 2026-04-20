@@ -61,22 +61,7 @@ If an epic is flagged by either tier:
 Thresholds and settings are configurable in `config.yaml` under
 `grooming:`.
 
-### 3. Component-to-Repository Mapping
-
-The agent reads the epic's Jira component and maps it to source
-repositories using `discovery.component_repo_map` in `config.yaml`:
-
-| Jira Component                     | Repositories                                   |
-|------------------------------------|------------------------------------------------|
-| CNV Virtualization                 | kubevirt/kubevirt                               |
-| CNV Install, Upgrade and Operators | kubevirt/hyperconverged-cluster-operator, kubevirt/monitoring |
-| CNV Infrastructure                 | kubevirt/hostpath-provisioner, kubevirt/hostpath-provisioner-operator |
-| CNV Storage                        | kubevirt/containerized-data-importer            |
-
-This mapping is passed to the LLM so it understands which codebases
-are relevant for the epic.
-
-### 4. Observability Inventory Discovery
+### 3. Observability Inventory Discovery
 
 The agent clones and scans all configured upstream repos
 (`discovery.repos`) to build an inventory of existing:
@@ -88,7 +73,7 @@ The agent clones and scans all configured upstream repos
 
 Results are cached per branch for the lifetime of the process.
 
-### 5. Need Assessment
+### 4. Need Assessment (advisory)
 
 The analyzer scores the epic against two term lists from
 `analysis.need_assessment`:
@@ -98,17 +83,18 @@ The analyzer scores the epic against two term lists from
 - **not_needed_terms** — words like "docs update", "typo",
   "release tracker" that suggest no observability is needed
 
-The score determines: `needed`, `not_needed`, or `uncertain`.
-Epics scored as `not_needed` are skipped.
+The score is **advisory only** — it is included in the analysis
+result for context but does not gate story generation. Every epic
+that passes the grooming check is always sent to the LLM.
 
-### 6. Coverage Evaluation
+### 5. Coverage Evaluation
 
-For epics that need observability, the analyzer checks whether the
-epic and its children already mention work on metrics, alerts, or
-dashboards using keyword lists from `analysis.coverage_keywords`.
-Missing categories become **gaps**.
+The analyzer checks whether the epic and its children already
+mention work on metrics, alerts, or dashboards using keyword
+lists from `analysis.coverage_keywords`. Missing categories
+become **gaps**.
 
-### 7. Feature Type Detection
+### 6. Feature Type Detection
 
 The analyzer classifies the epic into feature types
 (e.g. `data_path`, `api_controller`, `performance_scale`) using
@@ -119,7 +105,7 @@ Single-word signals (like "controller") only match in the epic
 summary/description — not in child issues — to avoid false
 positives from generic terms.
 
-### 8. Proposal Generation
+### 7. Proposal Generation
 
 For each gap, the agent generates proposals:
 
@@ -132,14 +118,14 @@ Proposals are filtered for grounding: alerts and dashboards are
 only proposed if there is metric backing (existing, proposed, or
 from inventory). This prevents ungrounded alert proposals.
 
-### 9. Label-Based Category Filtering
+### 8. Label-Based Category Filtering
 
 Before story generation, the agent checks the epic's Jira labels:
 
 - **`no-doc`** — removes the `docs` category (no docs stories)
 - **`no-qe`** — removes the `qe` category (no QE stories)
 
-### 10. Story Composition
+### 9. Story Composition
 
 Stories are generated in one of two modes:
 
@@ -152,7 +138,8 @@ with:
 - An **SRE lead persona** — the LLM evaluates proposals from the
   perspective of a cluster operator running production OpenShift
   Virtualization
-- **Domain context** — component-to-repo mapping, associated repos
+- **Epic context** — component, labels, description, child issues,
+  gaps, and inventory-backed proposals
 - **Category-specific rules**:
   - Observability stories must include "Why this matters", "Who
     benefits", "How it is used"
@@ -172,7 +159,7 @@ Stories are generated from templates in `subtask_templates` in
 `config.yaml` — no LLM call is made. Useful for deterministic
 runs or when no LLM API is available.
 
-### 11. Deduplication
+### 10. Deduplication
 
 Each proposed story is checked against:
 
@@ -184,7 +171,7 @@ Deduplication uses normalized summary matching (case-insensitive,
 brackets stripped, whitespace collapsed) and a SHA-256 fingerprint
 embedded in each story's description.
 
-### 12. Story Creation
+### 11. Story Creation
 
 In **dry-run** mode (default), the report shows what would be
 created — including full description, category, and story points.
@@ -198,10 +185,10 @@ version-scoped observability epic:
 - Each story is **linked** to the source feature epic
 - **Story points** estimated by the LLM (Fibonacci: 1,2,3,5,8,13)
 
-### 13. Story Point Estimation for Existing Issues
+### 12. Story Point Estimation for Existing Issues
 
 When `story_points.estimate_existing` is enabled, the agent also
-scans existing unsized stories under the observability epic and
+scans existing unsized stories under the source feature epic and
 uses the LLM to estimate their story points.
 
 Closed stories (status: Closed, Done, Resolved, Verified) are
@@ -401,7 +388,7 @@ All settings are in `config.yaml`:
 | `jira:` | JQL templates, default project |
 | `creation:` | Project, component, labels, epic format, story points field |
 | `grooming:` | Label, thresholds, comment for under-specified epics |
-| `discovery:` | Upstream repo URLs, component-to-repo mapping |
+| `discovery:` | Upstream repo URLs for inventory scanning |
 | `telemetry:` | CMO allowlist URL |
 | `analysis:` | Need-assessment keywords, coverage keywords |
 | `proposals:` | Feature type signals |

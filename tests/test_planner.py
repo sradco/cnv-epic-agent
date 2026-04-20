@@ -24,6 +24,7 @@ from prompts.templates import (
     build_sp_estimation_prompt,
     SYSTEM_PROMPT,
     SP_ESTIMATION_SYSTEM_PROMPT,
+    get_system_prompt,
 )
 from schemas.stories import (
     StoryPayload,

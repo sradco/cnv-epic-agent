@@ -14,6 +14,7 @@ from prompts.templates import (
     build_clarity_check_prompt,
     build_story_composition_prompt,
     build_sp_estimation_prompt,
+    get_system_prompt,
     strip_jira_markup,
     _trim_existing_items,
 )
@@ -21,6 +22,8 @@ from schemas.stories import SP_ESTIMATION_JSON_SCHEMA
 
 
 class TestSystemPrompt:
+    """Tests for the base SYSTEM_PROMPT (category-agnostic)."""
+
     def test_mentions_kubevirt(self):
         assert "kubevirt" in SYSTEM_PROMPT.lower()
 
@@ -30,77 +33,105 @@ class TestSystemPrompt:
     def test_mentions_acceptance_criteria(self):
         assert "acceptance criteria" in SYSTEM_PROMPT.lower()
 
-    def test_mentions_docs_category(self):
-        assert "docs" in SYSTEM_PROMPT.lower()
-
-    def test_mentions_qe_category(self):
-        assert "qe" in SYSTEM_PROMPT.lower()
-
     def test_mentions_story_points(self):
         assert "story points" in SYSTEM_PROMPT.lower()
 
     def test_mentions_fibonacci(self):
         assert "fibonacci" in SYSTEM_PROMPT.lower()
 
-    def test_alerts_require_metric_backing(self):
-        assert "backed by" in SYSTEM_PROMPT.lower()
-        assert "metric" in SYSTEM_PROMPT.lower()
-
-    def test_dashboards_require_metric_references(self):
-        assert "dashboard" in SYSTEM_PROMPT.lower()
-        assert "metric" in SYSTEM_PROMPT.lower()
-
-    def test_dashboards_prefer_existing_over_new(self):
-        lowered = SYSTEM_PROMPT.lower()
-        assert "existing dashboards" in lowered
-        assert "new standalone dashboards" in lowered
-
-    def test_dashboards_reject_internal_component_dashboards(self):
-        lowered = SYSTEM_PROMPT.lower()
-        assert "internal component" in lowered
-        assert "operator workflow" in lowered
-
     def test_allows_empty_stories_for_refactoring_epics(self):
         lowered = SYSTEM_PROMPT.lower()
-        assert "empty stories list" in lowered
         assert "internal refactoring" in lowered
         assert "do not invent stories just to fill a gap" in lowered
-
-    def test_docs_only_for_user_facing_changes(self):
-        lowered = SYSTEM_PROMPT.lower()
-        assert "user-facing" in lowered
-        assert "internal refactoring" in lowered
 
     def test_no_doc_no_qe_label_handling(self):
         lowered = SYSTEM_PROMPT.lower()
         assert "no-doc" in lowered
         assert "no-qe" in lowered
 
-    def test_sre_use_cases_mentioned(self):
+    def test_no_dashboards_for_backlog_epics(self):
         lowered = SYSTEM_PROMPT.lower()
+        assert "backlog" in lowered
+        assert "organizational containers" in lowered
+        assert "child stories" in lowered
+
+
+class TestGetSystemPromptWithObservability:
+    """Tests for observability rules injected via get_system_prompt."""
+
+    _ALL_OBS = ["metrics", "alerts", "dashboards"]
+
+    def test_sre_use_cases_mentioned(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
         assert "troubleshooting" in lowered
         assert "capacity planning" in lowered
         assert "health assessment" in lowered
 
+    def test_alerts_require_metric_backing(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "backed by" in lowered
+        assert "metric" in lowered
+
+    def test_dashboards_require_metric_references(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "dashboard" in lowered
+        assert "metric" in lowered
+
+    def test_dashboards_prefer_existing_over_new(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "existing dashboards" in lowered
+
+    def test_dashboards_reject_internal_component_dashboards(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "internal component" in lowered
+        assert "operator workflow" in lowered
+
     def test_rejects_presence_check_alerts(self):
-        assert "presence check" in SYSTEM_PROMPT.lower()
+        assert "presence" in get_system_prompt(self._ALL_OBS).lower()
 
     def test_requires_who_benefits_section(self):
-        assert "who benefits" in SYSTEM_PROMPT.lower()
+        assert "who benefits" in get_system_prompt(self._ALL_OBS).lower()
 
     def test_requires_why_this_matters_section(self):
-        assert "why this matters" in SYSTEM_PROMPT.lower()
+        assert "why this matters" in get_system_prompt(self._ALL_OBS).lower()
 
     def test_requires_how_it_is_used_section(self):
-        assert "how it is used" in SYSTEM_PROMPT.lower()
+        assert "how it is used" in get_system_prompt(self._ALL_OBS).lower()
+
+    def test_alerts_require_actionable_response(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "actionable response" in lowered
+        assert "dashboard insight" in lowered
+
+    def test_obs_rules_not_injected_without_obs_categories(self):
+        lowered = get_system_prompt(["docs", "qe"]).lower()
+        assert "presence" not in lowered
+        assert "backed by" not in lowered
+
+
+class TestGetSystemPromptWithDocs:
+    """Tests for docs rules injected via get_system_prompt."""
+
+    def test_docs_only_for_user_facing_changes(self):
+        lowered = get_system_prompt(["docs"]).lower()
+        assert "user-facing" in lowered
+        assert "internal refactoring" in lowered
+
+    def test_docs_rules_not_injected_without_docs(self):
+        lowered = get_system_prompt(["metrics"]).lower()
+        assert "user-facing feature" not in lowered
+
+
+class TestGetSystemPromptWithQE:
+    """Tests for QE rules injected via get_system_prompt."""
 
     def test_qe_split_by_test_type(self):
-        lowered = SYSTEM_PROMPT.lower()
-        assert "split qe work" in lowered
+        lowered = get_system_prompt(["qe"]).lower()
+        assert "split" in lowered
         assert "monolithic" in lowered
 
     def test_qe_test_categories_mentioned(self):
-        lowered = SYSTEM_PROMPT.lower()
+        lowered = get_system_prompt(["qe"]).lower()
         assert "metric unit tests" in lowered
         assert "alert rule tests" in lowered
         assert "dashboard verification" in lowered
@@ -108,40 +139,14 @@ class TestSystemPrompt:
         assert "upgrade/rollback" in lowered
 
     def test_qe_distinguishes_new_vs_migrated(self):
-        lowered = SYSTEM_PROMPT.lower()
+        lowered = get_system_prompt(["qe"]).lower()
         assert "genuinely new" in lowered
-        assert "moved or refactored" in lowered
+        assert "migrated" in lowered
         assert "renamed" in lowered
 
-    def test_component_repo_mapping(self):
-        assert "CNV Virtualization" in SYSTEM_PROMPT
-        assert "kubevirt/kubevirt" in SYSTEM_PROMPT
-        assert "CNV Install, Upgrade and Operators" in SYSTEM_PROMPT
-        assert "hyperconverged-cluster-operator" in SYSTEM_PROMPT
-        assert "kubevirt/monitoring" in SYSTEM_PROMPT
-        assert "CNV Infrastructure" in SYSTEM_PROMPT
-        assert "hostpath-provisioner" in SYSTEM_PROMPT
-        assert "CNV Storage" in SYSTEM_PROMPT
-        assert "containerized-data-importer" in SYSTEM_PROMPT
-
-    def test_alert_placement_by_metric_prefix(self):
-        lowered = SYSTEM_PROMPT.lower()
-        assert "metric prefix" in lowered
-        assert "kubevirt_vmi_*" in SYSTEM_PROMPT
-        assert "kubevirt_hco_*" in SYSTEM_PROMPT
-        assert "kubevirt_hpp_*" in SYSTEM_PROMPT
-        assert "kubevirt_cdi_*" in SYSTEM_PROMPT
-
-    def test_monitoring_repo_scoped_to_operator(self):
-        assert "monitoring operator" in SYSTEM_PROMPT.lower()
-        assert "do not place alert rules in kubevirt/monitoring" in \
-            SYSTEM_PROMPT.lower()
-
-    def test_alerts_require_actionable_response(self):
-        lowered = SYSTEM_PROMPT.lower()
-        assert "actionable response" in lowered
-        assert "capacity-planning insight" in lowered
-        assert "dashboard, not an alert" in lowered
+    def test_qe_rules_not_injected_without_qe(self):
+        lowered = get_system_prompt(["metrics"]).lower()
+        assert "monolithic" not in lowered
 
 
 class TestBuildPrompt:
@@ -179,10 +184,9 @@ class TestBuildPrompt:
             "need_state": "needed",
             "need_confidence": "high",
             "recommended_action": "create now",
-            "apply_allowed": True,
+
             "would_create_count": 1,
             "epic_components": [],
-            "associated_repos": [],
         }
         base.update(overrides)
         return base
@@ -199,21 +203,6 @@ class TestBuildPrompt:
         analysis = self._make_analysis(epic_components=[])
         prompt = build_story_composition_prompt(analysis)
         assert "Epic components:" not in prompt
-
-    def test_includes_associated_repos(self):
-        analysis = self._make_analysis(
-            associated_repos=[
-                "https://github.com/kubevirt/kubevirt",
-            ],
-        )
-        prompt = build_story_composition_prompt(analysis)
-        assert "kubevirt/kubevirt" in prompt
-        assert "Associated source repositories:" in prompt
-
-    def test_no_repos_section_when_empty(self):
-        analysis = self._make_analysis(associated_repos=[])
-        prompt = build_story_composition_prompt(analysis)
-        assert "Associated source repositories:" not in prompt
 
     def test_includes_epic_labels(self):
         analysis = self._make_analysis(

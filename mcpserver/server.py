@@ -33,7 +33,7 @@ if _project_root not in sys.path:
 from mcpserver.jira.tools import register_jira_tools
 from mcpserver.github.tools import register_github_tools
 from mcpserver.tools.config import register_config_tools
-from prompts.templates import SYSTEM_PROMPT, build_story_composition_prompt
+from prompts.templates import get_system_prompt, build_story_composition_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,8 @@ async def compose_observability_stories(epic_key: str) -> str:
         ),
         include_schema=True,
     )
-    return f"{SYSTEM_PROMPT}\n\n---\n\n{prompt_text}"
+    cats = agent_cfg.get("enabled_categories")
+    return f"{get_system_prompt(cats)}\n\n---\n\n{prompt_text}"
 
 
 def main() -> None:

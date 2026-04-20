@@ -13,11 +13,11 @@ from typing import Any
 from prompts.templates import (
     CLARITY_CHECK_JSON_SCHEMA,
     CLARITY_CHECK_SYSTEM_PROMPT,
-    SYSTEM_PROMPT,
     SP_ESTIMATION_SYSTEM_PROMPT,
     build_clarity_check_prompt,
     build_story_composition_prompt,
     build_sp_estimation_prompt,
+    get_system_prompt,
 )
 from schemas.stories import (
     SP_ESTIMATION_JSON_SCHEMA,
@@ -82,7 +82,7 @@ def compose_stories(
     )
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": get_system_prompt(categories)},
         {"role": "user", "content": user_prompt},
     ]
 

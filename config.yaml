@@ -19,11 +19,6 @@ grooming:
   min_description_length: 50
   min_children: 1
   llm_clarity_check: true
-  comment: |
-    [Epic Agent] This epic does not have enough detail for
-    story generation. Please add child stories and a more
-    detailed description so the scope is clear, then remove
-    the *grooming* label to re-enable processing.
 
 discovery:
   repos:
@@ -37,18 +32,6 @@ discovery:
     - "https://github.com/kubevirt/monitoring"
     - "https://github.com/kubevirt/ssp-operator"
     - "https://github.com/stolostron/multicluster-observability-addon"
-
-  component_repo_map:
-    "CNV Virtualization":
-      - "https://github.com/kubevirt/kubevirt"
-    "CNV Install, Upgrade and Operators":
-      - "https://github.com/kubevirt/hyperconverged-cluster-operator"
-      - "https://github.com/kubevirt/monitoring"
-    "CNV Infrastructure":
-      - "https://github.com/kubevirt/hostpath-provisioner"
-      - "https://github.com/kubevirt/hostpath-provisioner-operator"
-    "CNV Storage":
-      - "https://github.com/kubevirt/containerized-data-importer"
 
 telemetry:
   cmo_allowlist_url: "https://raw.githubusercontent.com/openshift/cluster-monitoring-operator/master/manifests/0000_50_cluster-monitoring-operator_04-config.yaml"
@@ -293,63 +276,9 @@ agent:
     docs:
       trigger: "Epic changes user-facing behavior, APIs, CLI, or UI"
       story_prefix: "[Docs]"
-      acceptance_criteria:
-        - "Documentation PR submitted to the appropriate repo"
-        - "Release notes entry added if user-visible"
-        - "API reference updated if endpoints changed"
     qe:
-      trigger: "Epic has observability child stories (metrics, alerts, dashboards) or introduces runtime changes that need verification"
+      trigger: "Epic has observability child stories or introduces runtime changes that need verification"
       story_prefix: "[QE]"
-      split_guidance: >-
-        Create separate QE stories by test type. Group same-type
-        tests into one story (e.g. one story listing all metric
-        unit tests, one for alert rule validation). Reference the
-        specific observability story keys each QE story validates.
-      test_categories:
-        - name: "Metric unit tests"
-          type: "automated"
-          prefix: "[QE][metrics]"
-          criteria:
-            - "Each new metric is registered and exposed on /metrics"
-            - "Metric type (counter/gauge/histogram) is correct"
-            - "Labels are present and have expected values"
-            - "Metric emits expected values under known conditions"
-            - "No unbounded cardinality introduced"
-        - name: "Alert rule validation"
-          type: "automated"
-          prefix: "[QE][alerts]"
-          criteria:
-            - "PrometheusRule fires against sample data"
-            - "Alert severity and runbook_url annotation are set"
-            - "Alert resolves when condition clears"
-            - "Alert does not fire under normal conditions"
-        - name: "Dashboard verification"
-          type: "manual + automated"
-          prefix: "[QE][dashboards]"
-          criteria:
-            - "Panels render correctly with sample data"
-            - "PromQL queries return expected results"
-            - "No broken panels after upgrade"
-            - "Layout follows existing conventions"
-        - name: "End-to-end pipeline"
-          type: "manual"
-          prefix: "[QE][e2e]"
-          criteria:
-            - "Metrics scraped by Prometheus in real cluster"
-            - "Alerts fire in real cluster under fault injection"
-            - "Dashboard panels populated with live data"
-        - name: "Upgrade/rollback"
-          type: "manual"
-          prefix: "[QE][upgrade]"
-          criteria:
-            - "Metrics/alerts/dashboards survive upgrade"
-            - "No data loss or broken panels after rollback"
-            - "Recording rules produce correct values post-upgrade"
-      acceptance_criteria:
-        - "Test cases listed as checklist in story description"
-        - "Each test case references the metric/alert/dashboard it validates"
-        - "Automated tests added where applicable"
-        - "Manual verification steps documented for manual tests"
   story_points:
     enabled: true
     estimate_existing: true
