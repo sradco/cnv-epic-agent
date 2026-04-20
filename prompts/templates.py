@@ -186,11 +186,16 @@ panels to existing dashboards. Every panel MUST reference \
 specific metrics.
 - Do NOT propose presence-check alerts, dashboards for internal \
 component health, or items only useful to test pipelines.
-- Before proposing a new alert, check the **existing** items in \
-the "Analysis findings" section. If an existing alert already \
-covers the same condition or a closely related one (e.g. \
-unhealthy VM status), do NOT propose a duplicate or overlapping \
-alert. The same applies to metrics and dashboards.
+- Before proposing any new item, check the **existing** items \
+in the "Analysis findings" section:
+  * **Alerts**: if an existing alert already covers the same \
+condition or a closely related one (e.g. unhealthy VM status), \
+do NOT propose a duplicate or overlapping alert.
+  * **Metrics**: if an existing metric already tracks the same \
+measurement, do NOT propose a new metric for it.
+  * **Dashboards / panels**: if an existing dashboard panel \
+already visualizes the data you would propose, do NOT propose \
+a new panel for it. Check panel names and PromQL queries.
 - Only propose metrics and alerts for resources the component \
 **owns or directly controls**. If the component merely reads \
 an external CR or config (e.g. an OpenShift platform CR like \
