@@ -532,7 +532,7 @@ def run(
 
         if flagged:
             report_lines.append(
-                f"## {epic_key} — NEEDS GROOMING"
+                f"## {epic_key} — {epic.summary} — NEEDS GROOMING"
             )
             report_lines.append(grooming_reason)
             comment_text = (

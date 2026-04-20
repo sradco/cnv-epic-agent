@@ -644,6 +644,7 @@ class TestGroomingDetection:
         )
 
         assert "NEEDS GROOMING" in report
+        assert "Sparse epic" in report
         assert "grooming" in report.lower()
         assert "Would add" in report
 
