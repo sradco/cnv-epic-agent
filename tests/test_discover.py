@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from mcpserver.github.discover import (
+from agent.discovery.discover import (
     ObservabilityInventory,
     TelemetryAllowlistEntry,
     _parse_cmo_telemetry_yaml,

@@ -3,5 +3,4 @@ __pycache__/
 .venv/
 *.egg-info/
 .pytest_cache/
-.cursor/mcp.json
-mcp.json
+report.md

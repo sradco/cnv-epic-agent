@@ -1,8 +1,6 @@
 """Prompt templates for LLM-assisted story composition.
 
-Used by both the MCP ``@server.prompt()`` endpoint and the standalone
-agent planner so that both workflows produce identically-structured
-stories.  Supports pluggable categories (observability, docs, QE) and
+Supports pluggable categories (observability, docs, QE) and
 LLM-estimated story points via injected guidance from config.
 """
 
@@ -178,6 +176,9 @@ operator decision). This detail is required only for \
 observability stories — not for QE or docs.
 - Use kubevirt_<component>_<noun>_<unit> naming, CamelCase \
 alert names.
+- Metric and alert names MUST be version-agnostic. Never embed \
+a platform version (OCP 4.x/5.x), CNV version, or RHCOS \
+version in a metric or alert name.
 - Alerts MUST be backed by a concrete metric. Name the metric. \
 Every alert must have a clear actionable response — "low \
 utilization" is a dashboard insight, NOT an alert.
@@ -210,6 +211,15 @@ APIServer, Infrastructure, or Network), do NOT propose alerts \
 or metrics for unexpected values in that external resource — \
 that is the responsibility of the platform operator, not \
 KubeVirt/CNV.
+- Before proposing new metrics, use your knowledge of well-known \
+Kubernetes ecosystem metrics: controller-runtime \
+(controller_runtime_reconcile_*, \
+controller_runtime_reconcile_time_seconds), kube-state-metrics \
+(kube_pod_*, kube_node_*, kube_deployment_*), cAdvisor \
+(container_cpu_*, container_memory_*), and kubelet \
+(kubelet_volume_stats_*). Do NOT propose metrics that duplicate \
+or overlap with these — instead, propose recording rules or \
+dashboards that leverage the existing platform metrics.
 """
 
 _FEW_SHOT_EXAMPLES = """\
@@ -224,6 +234,12 @@ BAD: Epic reads OpenShift APIServer TLSAdherence field. \
 Proposed alert for unknown values. Wrong — HCO only reads \
 that CR, it does not own it. Alerting on platform CRs is \
 the platform operator's responsibility.
+
+BAD: Epic supports dual RHCOS versions. Proposed new \
+`kubevirt_infra_ocp_5_reconcile_duration_seconds`. Wrong — \
+controller-runtime already exposes \
+`controller_runtime_reconcile_time_seconds` for all controllers, \
+and the name embeds an OCP version number.
 
 GOOD: Epic adds GPU passthrough. No existing GPU metrics \
 in inventory. Proposed `kubevirt_vmi_gpu_allocated` gauge \

@@ -11,6 +11,7 @@ import logging
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,8 +28,8 @@ from agent.planner.planner import (
     compose_stories,
     estimate_story_points,
 )
-from mcpserver.github.discover import build_all_inventories
-from mcpserver.jira.client import (
+from agent.discovery.discover import build_all_inventories
+from agent.jira.client import (
     add_grooming_comment,
     add_grooming_label,
     create_obs_story,
@@ -463,9 +464,12 @@ def run(
         if labels:
             filters_active.append(f"labels={','.join(labels)}")
 
+    run_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
     report_lines: list[str] = [
         f"# Epic Agent Run ({'APPLY' if apply else 'DRY-RUN'})",
         "",
+        f"- **Date:** {run_timestamp}",
         f"- **Epics:** {len(epics_to_process)}",
         f"- **Version:** {version or '(not set)'}",
         f"- **Model:** {model}",

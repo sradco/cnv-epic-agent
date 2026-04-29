@@ -1,9 +1,9 @@
 # CNV Epic Agent
 
-An agent and MCP server that helps groom CNV epics. It scans Jira
-epics, checks whether they have enough detail, and proposes child
-stories to fill gaps — using either deterministic templates or
-LLM-assisted reasoning.
+An LLM-powered agent that helps groom KubeVirt/CNV Jira epics.
+It scans epics, checks whether they have enough detail, and
+proposes child stories to fill gaps — interactively from the
+terminal or automated via CI/cron.
 
 Current capabilities:
 
@@ -199,19 +199,14 @@ completed work.
 
 ```
 cnv-epic-agent/
-  mcpserver/           — MCP server (deterministic tools, no LLM)
-    server.py         — FastMCP entrypoint, registers all tools + prompts
-    jira/             — Jira tools (scan, analyze, create) + client
-    github/           — Code discovery tools + scanner
-    monitoring/       — Placeholder for live-cluster tools
-    tools/            — Config tools (get_config, refresh_cache)
-  agent/              — Standalone agent (LLM reasoning, CLI/CI)
+  agent/              — CLI agent (LLM-assisted)
     cli.py            — CLI entrypoint
     runner.py         — Orchestrator: discover -> analyze -> plan -> apply
     analyzer/         — Gap analysis (analysis.py, formatter.py)
     planner/          — LLM story composition (planner.py, llm.py)
-    reviewer/         — Placeholder for validation
-  schemas/            — Shared data contracts (StoryPayload, AnalysisResult)
+    jira/             — Jira REST client (auth, query, create)
+    discovery/        — Code scanning (metrics, alerts, dashboards)
+  schemas/            — Shared data contracts (StoryPayload, IssueDoc)
   prompts/            — Shared prompt templates (SYSTEM_PROMPT)
   config.yaml         — All settings
   tests/              — Unit tests
@@ -219,11 +214,9 @@ cnv-epic-agent/
 
 **Key design principles:**
 
-- **MCP tools are stateless and deterministic** — no LLM calls inside `mcpserver/`
-- **Agent orchestrates LLM reasoning** — only `agent/planner/` talks to an LLM
-- **Shared schemas** — both MCP prompts and agent use `schemas/stories.py`
-- **Shared prompts** — both `mcpserver/server.py` prompt and agent use `prompts/templates.py`
+- **Single CLI agent** — `agent/planner/` calls LLM via litellm; runs interactively or in CI
 - **Pluggable categories** — enabled via `config.yaml` `agent.enabled_categories`
+- **Shared schemas and prompts** — `schemas/` and `prompts/` keep data contracts in one place
 
 ## Quick Start
 
@@ -233,33 +226,9 @@ export JIRA_EMAIL="you@redhat.com"
 export JIRA_TOKEN="your-atlassian-api-token"
 ```
 
-## Three Usage Modes
+## Usage
 
-### 1. MCP Server (any MCP client: Cursor, Claude Desktop, etc.)
-
-```bash
-uv run mcpserver/server.py
-```
-
-The MCP server exposes tools that any MCP-compatible client can call.
-Add to your MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "cnv-epic-agent": {
-      "command": "uv",
-      "args": ["run", "/path/to/cnv-epic-agent/mcpserver/server.py"],
-      "env": {
-        "JIRA_EMAIL": "${JIRA_EMAIL}",
-        "JIRA_TOKEN": "${JIRA_TOKEN}"
-      }
-    }
-  }
-}
-```
-
-### 2. CLI Agent (standalone, LLM-assisted)
+### CLI Agent
 
 ```bash
 # Dry-run: scan recent epics for CNV 4.22
@@ -293,7 +262,7 @@ The CLI agent supports any LLM provider via
 [litellm](https://docs.litellm.ai/docs/providers):
 OpenAI, Anthropic, Ollama, Azure, etc.
 
-### 3. Daily Automated Runs (CI/cron)
+### Automated Runs (CI/cron)
 
 ```yaml
 # .github/workflows/epic-scan.yml
@@ -337,48 +306,6 @@ in `config.yaml`:
 
 Story points are estimated by the LLM for all categories.
 
-## MCP Tools
-
-### Jira Workflow
-
-| Tool | Description |
-|------|-------------|
-| `scan_epics` | Bulk scan recent CNV epics for observability gaps |
-| `analyze_epic` | Deep-dive a single epic with full evidence report |
-| `get_analysis_data` | Structured analysis data as JSON for AI reasoning |
-| `create_stories` | Batch-create stories (dry-run default) |
-| `create_story` | Create a single story with client-provided content |
-
-### Code Discovery
-
-| Tool | Description |
-|------|-------------|
-| `discover_repo_observability` | Scan a repo for metrics, alerts, rules, dashboards |
-| `list_metrics` | List Prometheus metrics across all CNV repos |
-| `list_alerts` | List alerting rules across all CNV repos |
-| `list_dashboards` | List dashboards, panels, and PromQL queries |
-| `search_observability` | Search artifacts by name pattern |
-| `refresh_cache` | Force re-scan of all repos |
-
-### Telemetry
-
-| Tool | Description |
-|------|-------------|
-| `suggest_telemetry` | Propose cluster-level rules for CMO allowlist |
-| `list_telemetry` | Show current allowlist and candidates |
-
-### Configuration
-
-| Tool | Description |
-|------|-------------|
-| `get_config` | Show current scanner configuration |
-
-### MCP Prompt
-
-| Prompt | Description |
-|--------|-------------|
-| `compose_observability_stories` | Returns a structured prompt with analysis evidence for LLM-assisted story composition |
-
 ## Configuration
 
 All settings are in `config.yaml`:
@@ -400,5 +327,5 @@ All settings are in `config.yaml`:
 
 ```bash
 cd cnv-epic-agent
-uv run --with pytest,pyyaml,jira,mcp,httpx pytest tests/ -v
+uv run --with pytest,pyyaml,jira,httpx pytest tests/ -v
 ```

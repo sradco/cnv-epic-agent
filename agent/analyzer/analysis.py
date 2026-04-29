@@ -508,7 +508,7 @@ def suggest_telemetry(
     if inventory is None:
         return []
 
-    from mcpserver.github.discover import find_cluster_level_rules
+    from agent.discovery.discover import find_cluster_level_rules
 
     allowlist_names: set[str] = set()
     if hasattr(inventory, "telemetry_allowlist"):

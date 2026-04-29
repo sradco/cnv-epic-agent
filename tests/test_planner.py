@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.planner.llm import parse_json_response
-from mcpserver.jira.client import (
+from agent.jira.client import (
     _extract_source_epic,
     _extract_summary_hash,
     _hash_summary,
@@ -604,7 +604,7 @@ class TestBroadSearchDedup:
         assert result == "CNV-888"
 
     def test_broad_fingerprint_ignored(self):
-        from mcpserver.jira.client import _hash_summary
+        from agent.jira.client import _hash_summary
         target = "[Observability][metrics] Add GPU metric"
         s_hash = _hash_summary(target)
         existing = [
@@ -655,7 +655,7 @@ class TestFindBroadMatchingStories:
 
     def test_builds_jql_and_returns_tagged_entries(self):
         from unittest.mock import MagicMock
-        from mcpserver.jira.client import (
+        from agent.jira.client import (
             find_broad_matching_stories,
         )
 
@@ -681,7 +681,7 @@ class TestFindBroadMatchingStories:
 
     def test_filters_short_keywords(self):
         from unittest.mock import MagicMock
-        from mcpserver.jira.client import (
+        from agent.jira.client import (
             find_broad_matching_stories,
         )
 
@@ -698,7 +698,7 @@ class TestFindBroadMatchingStories:
 
     def test_skips_source_epic_key(self):
         from unittest.mock import MagicMock
-        from mcpserver.jira.client import (
+        from agent.jira.client import (
             find_broad_matching_stories,
         )
 
@@ -723,7 +723,7 @@ class TestFindBroadMatchingStories:
 
     def test_caps_keywords_at_five(self):
         from unittest.mock import MagicMock
-        from mcpserver.jira.client import (
+        from agent.jira.client import (
             find_broad_matching_stories,
         )
 
@@ -744,7 +744,7 @@ class TestFindBroadMatchingStories:
 
     def test_handles_jira_error_gracefully(self):
         from unittest.mock import MagicMock
-        from mcpserver.jira.client import (
+        from agent.jira.client import (
             find_broad_matching_stories,
         )
 
@@ -765,7 +765,7 @@ class TestFingerprintFormat:
     def test_create_obs_story_embeds_fingerprint(self):
         """Verify create_obs_story embeds a parseable fingerprint."""
         from unittest.mock import MagicMock
-        from mcpserver.jira.client import create_obs_story
+        from agent.jira.client import create_obs_story
 
         mock_client = MagicMock()
         mock_issue = MagicMock()

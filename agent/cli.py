@@ -31,6 +31,7 @@ import argparse
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
@@ -166,11 +167,14 @@ def main() -> None:
     print(report)
 
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as fh:
+        base, ext = os.path.splitext(args.output)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        output_path = f"{base}-{timestamp}{ext}"
+        with open(output_path, "w", encoding="utf-8") as fh:
             fh.write(report)
             fh.write("\n")
         logging.getLogger(__name__).info(
-            "Report written to %s", args.output,
+            "Report written to %s", output_path,
         )
 
 

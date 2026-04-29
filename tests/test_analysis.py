@@ -108,7 +108,7 @@ class TestFeatureTypeDetection:
 
 class TestProposalGeneration:
     def test_proposals_return_two_section_structure(self):
-        from mcpserver.github.discover import (
+        from agent.discovery.discover import (
             MetricInfo,
             AlertRuleInfo,
             ObservabilityInventory,
@@ -168,7 +168,7 @@ class TestProposalGeneration:
             assert len(e["rationale"]) > 0
 
     def test_existing_metrics_include_help_field(self):
-        from mcpserver.github.discover import (
+        from agent.discovery.discover import (
             MetricInfo,
             ObservabilityInventory,
         )
@@ -203,7 +203,7 @@ class TestProposalGeneration:
         assert hit["help"] == "Total API requests"
 
     def test_existing_metrics_omit_help_when_empty(self):
-        from mcpserver.github.discover import (
+        from agent.discovery.discover import (
             MetricInfo,
             ObservabilityInventory,
         )
@@ -238,7 +238,7 @@ class TestProposalGeneration:
         assert "help" not in hit
 
     def test_existing_alerts_include_expr_field(self):
-        from mcpserver.github.discover import (
+        from agent.discovery.discover import (
             AlertRuleInfo,
             ObservabilityInventory,
         )
@@ -274,7 +274,7 @@ class TestProposalGeneration:
         assert hit["expr"] == 'up{job="kubevirt"} == 0'
 
     def test_existing_alerts_omit_expr_when_empty(self):
-        from mcpserver.github.discover import (
+        from agent.discovery.discover import (
             AlertRuleInfo,
             ObservabilityInventory,
         )
@@ -310,7 +310,7 @@ class TestProposalGeneration:
         assert "expr" not in hit
 
     def test_existing_panels_include_queries_field(self):
-        from mcpserver.github.discover import (
+        from agent.discovery.discover import (
             PanelInfo,
             ObservabilityInventory,
         )
@@ -349,7 +349,7 @@ class TestProposalGeneration:
         ]
 
     def test_existing_panels_omit_queries_when_empty(self):
-        from mcpserver.github.discover import (
+        from agent.discovery.discover import (
             PanelInfo,
             ObservabilityInventory,
         )
@@ -386,7 +386,7 @@ class TestProposalGeneration:
         assert "queries" not in hit
 
     def test_existing_items_have_rationale_with_matched_keyword(self):
-        from mcpserver.github.discover import MetricInfo, ObservabilityInventory
+        from agent.discovery.discover import MetricInfo, ObservabilityInventory
 
         inv = ObservabilityInventory(
             repo_path="test",
@@ -454,7 +454,7 @@ class TestProposalGeneration:
         assert proposals["dashboards"]["existing"] == []
 
     def test_empty_inventory_produces_empty_existing(self):
-        from mcpserver.github.discover import ObservabilityInventory
+        from agent.discovery.discover import ObservabilityInventory
 
         inv = ObservabilityInventory(repo_path="test")
         issues = [
@@ -542,7 +542,7 @@ class TestProposeNewItems:
 
 class TestTelemetryRationale:
     def test_suggest_telemetry_includes_rationale(self):
-        from mcpserver.github.discover import ObservabilityInventory, RecordingRuleInfo
+        from agent.discovery.discover import ObservabilityInventory, RecordingRuleInfo
 
         inv = ObservabilityInventory(
             repo_path="test",
@@ -572,7 +572,7 @@ class TestTelemetryRationale:
         assert "sum" in candidates[0]["rationale"].lower()
 
     def test_rationale_mentions_cluster_prefix(self):
-        from mcpserver.github.discover import ObservabilityInventory, RecordingRuleInfo
+        from agent.discovery.discover import ObservabilityInventory, RecordingRuleInfo
 
         inv = ObservabilityInventory(
             repo_path="test",
@@ -848,7 +848,7 @@ class TestMetricBackingFilter:
         assert len(proposals["alerts"]["proposed"]) > 0
 
     def test_alerts_kept_when_metrics_proposed(self):
-        from mcpserver.github.discover import ObservabilityInventory
+        from agent.discovery.discover import ObservabilityInventory
 
         inv = ObservabilityInventory(repo_path="test")
         proposals = propose_for_categories(
