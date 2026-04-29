@@ -77,14 +77,15 @@ class TestGetSystemPromptWithObservability:
         assert "dashboard" in lowered
         assert "metric" in lowered
 
-    def test_dashboards_prefer_existing_over_new(self):
+    def test_dashboards_category_means_panels(self):
         lowered = get_system_prompt(self._ALL_OBS).lower()
-        assert "existing dashboards" in lowered
+        assert "dashboard panels" in lowered
+        assert "not whole new dashboards" in lowered
+        assert "name it explicitly" in lowered
 
     def test_dashboards_reject_internal_component_dashboards(self):
         lowered = get_system_prompt(self._ALL_OBS).lower()
         assert "internal component" in lowered
-        assert "operator workflow" in lowered
 
     def test_rejects_presence_check_alerts(self):
         assert "presence" in get_system_prompt(self._ALL_OBS).lower()
@@ -108,6 +109,12 @@ class TestGetSystemPromptWithObservability:
         assert "owns or directly controls" in lowered
         assert "external cr" in lowered
 
+    def test_alerts_require_metric_type_compatibility(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "type and semantics" in lowered
+        assert "progress percentage" in lowered
+        assert "counter, gauge, histogram" in lowered
+
     def test_few_shot_examples_present(self):
         prompt = get_system_prompt(self._ALL_OBS)
         assert "Examples of correct vs. incorrect judgment" in prompt
@@ -120,6 +127,11 @@ class TestGetSystemPromptWithObservability:
     def test_few_shot_bad_external_cr_example(self):
         lowered = get_system_prompt(self._ALL_OBS).lower()
         assert "platform operator" in lowered
+
+    def test_few_shot_bad_metric_type_mismatch_example(self):
+        lowered = get_system_prompt(self._ALL_OBS).lower()
+        assert "kubevirt_cdi_import_progress_total" in lowered
+        assert "error-rate computation" in lowered
 
     def test_few_shot_good_gpu_example(self):
         lowered = get_system_prompt(self._ALL_OBS).lower()
