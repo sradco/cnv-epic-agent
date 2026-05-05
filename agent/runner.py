@@ -288,12 +288,23 @@ def _dedup_and_create(
             else:
                 tally.dev_sp_proposed += sp
 
+        # Apply the configurable prefix to the Jira summary so
+        # agent-generated stories are easy to spot in the epic view.
+        # The prefix is NOT applied before the dedup check so existing
+        # stories without the prefix are still matched correctly.
+        prefix = ctx.cfg.get("creation", {}).get(
+            "story_summary_prefix", "[agent]",
+        )
+        display_summary = (
+            f"{prefix} {story.summary}" if prefix else story.summary
+        )
+
         if ctx.apply and ctx.version:
             try:
                 issue, warnings = create_obs_story(
                     ctx.client, ctx.cfg,
                     obs_epic["key"], epic_key,
-                    story.summary, story.description,
+                    display_summary, story.description,
                     story_points=story.story_points,
                     category=story.category,
                     run_id=ctx.run_id,
@@ -312,7 +323,7 @@ def _dedup_and_create(
                 )
                 lines.append(
                     f"- CREATED {issue.key}: "
-                    f"{story.summary}{sp_tag}{warn_tag}"
+                    f"{display_summary}{sp_tag}{warn_tag}"
                 )
             except Exception:
                 ctx.counters.failed += 1
@@ -320,7 +331,7 @@ def _dedup_and_create(
                     "[%s] Failed to create story for %s",
                     ctx.run_id, epic_key, exc_info=True,
                 )
-                lines.append(f"- ERROR: {story.summary}")
+                lines.append(f"- ERROR: {display_summary}")
         else:
             ctx.counters.created += 1
             ctx.counters.record_category(
@@ -331,7 +342,7 @@ def _dedup_and_create(
                 if story.story_points else ""
             )
             lines.append(
-                f"- WOULD CREATE: {story.summary}{sp_tag}"
+                f"- WOULD CREATE: {display_summary}{sp_tag}"
             )
             lines.append("")
             lines.append(

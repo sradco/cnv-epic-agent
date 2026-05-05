@@ -16,6 +16,9 @@ creation:
   story_label: "epic-agent-generated"
   epic_summary_format: "[Observability] CNV {version} — Auto-generated observability stories"
   story_points_field: "customfield_10028"
+  # Prefix prepended to every agent-generated story summary so they
+  # are easy to spot when browsing the epic's child issues in Jira.
+  story_summary_prefix: "[agent]"
 
 grooming:
   label: "grooming"

@@ -46,6 +46,7 @@ class CreationConfig:
         "Auto-generated observability stories"
     )
     story_points_field: str = "customfield_10028"
+    story_summary_prefix: str = "[agent]"
 
 
 @dataclass
@@ -243,6 +244,10 @@ class AppConfig:
                 story_points_field=str(
                     c.get("story_points_field",
                            CreationConfig.story_points_field),
+                ),
+                story_summary_prefix=str(
+                    c.get("story_summary_prefix",
+                           CreationConfig.story_summary_prefix),
                 ),
             ),
             grooming=GroomingConfig(
