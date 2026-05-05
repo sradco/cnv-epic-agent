@@ -13,19 +13,27 @@ _SAMPLE_REPORT = """\
 
 ## Summary
 
-### Epic Planning Overview
+### Fix Version Epics
 
-| Epic | Status | Fix Ver | Target Ver | Dev SP | QE SP | Docs SP |
-| --- | --- | --- | --- | --- | --- | --- |
-| [CNV-100](#cnv-100) | groomed | CNV 5.0 | CNV v5.0.0 | 10 (+5) | 3 (+2) | no-doc |
-| [CNV-200](#cnv-200) | needs grooming | - | - | 0 | no-qe | 0 |
-| [CNV-300](#cnv-300) | error | - | - | 0 | 0 | 0 |
+| Epic | Summary | Status | Fix Ver | Target Ver | Dev SP | QE SP | Docs SP |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [CNV-100](#cnv-100) | Add VM migration metrics | groomed | CNV 5.0 | CNV v5.0.0 | 10 (+5) | 3 (+2) | no-doc |
+| **Total** | | | | | 10 (+5) | 3 (+2) | 0 |
+
+### Unversioned Epics
+
+| Epic | Summary | Status | Fix Ver | Target Ver | Dev SP | QE SP | Docs SP |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [CNV-200](#cnv-200) | Needs grooming epic | needs grooming | - | - | 0 | no-qe | 0 |
+| [CNV-300](#cnv-300) | Error epic | error | - | - | 0 | 0 | 0 |
+| **Total** | | | | | 0 | 0 | 0 |
 
 ### Agent Proposed Stories
 
-| Epic | Status | metrics | Total |
-| --- | --- | --- | --- |
-| [CNV-100](#cnv-100) | groomed | 2 | 2 |
+| Epic | Summary | Status | metrics | Total |
+| --- | --- | --- | --- | --- |
+| [CNV-100](#cnv-100) | Add VM migration metrics | groomed | 2 | 2 |
+| **Total** | | | 2 | 2 |
 
 | Metric | Count |
 |---|---|
@@ -86,7 +94,7 @@ class TestHtmlStructure:
 
 class TestHtmlTables:
     def test_planning_overview_table_present(self, html):
-        assert "Epic Planning Overview" in html
+        assert "Fix Version Epics" in html
         assert "Fix Ver" in html
         assert "Dev SP" in html
 

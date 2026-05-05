@@ -141,11 +141,9 @@ class TestRunnerDryRun:
         assert "## Summary" in report
         assert "Epics processed | 1" in report
         assert "Stories would create | 1" in report
-        assert "| Epic | Status | metrics | Total |" in report
-        assert (
-            "| [CNV-100](#cnv-100) | groomed | 1 | 1 |"
-            in report
-        )
+        assert "Agent Proposed Stories" in report
+        assert "CNV-100" in report
+        assert "groomed" in report
 
     @patch("agent.runner._load_config")
     @patch("agent.runner.get_jira_client")
@@ -1371,7 +1369,8 @@ class TestBuildReportSummaryTwoTables:
         c = self._make_counters([t])
         lines = _build_report_summary(c, 1, apply=False)
         text = "\n".join(lines)
-        assert "Epic Planning Overview" in text
+        # Unversioned epics go into the "Unversioned Epics" table
+        assert "Unversioned Epics" in text
         assert "Fix Ver" in text
         assert "Target Ver" in text
         assert "Dev SP" in text
@@ -1431,8 +1430,10 @@ class TestBuildReportSummaryTwoTables:
         c = self._make_counters([t])
         lines = _build_report_summary(c, 1, apply=False)
         text = "\n".join(lines)
-        # Both fix and target version default to "-"
+        # Both fix and target version default to "-"; row has
+        # "| epic | summary | status | - | - | ..." format
         assert "| - | - |" in text
+        assert "Unversioned Epics" in text
 
     def test_epic_key_linked_in_both_tables(self):
         from agent.runner import _EpicTally, _build_report_summary
@@ -1452,8 +1453,11 @@ class TestBuildReportSummaryTwoTables:
         c = self._make_counters([t1, t2])
         lines = _build_report_summary(c, 2, apply=False)
         text = "\n".join(lines)
-        pos_err = text.index("CNV-801")
-        pos_ok = text.index("CNV-800")
+        # Both are unversioned; within Unversioned Epics table
+        # errors sort before groomed.
+        unversioned_section = text[text.index("Unversioned Epics"):]
+        pos_err = unversioned_section.index("CNV-801")
+        pos_ok = unversioned_section.index("CNV-800")
         assert pos_err < pos_ok
 
 

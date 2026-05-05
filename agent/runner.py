@@ -90,7 +90,7 @@ class _EpicTally:
     """Per-epic story counts by category and status."""
 
     __slots__ = (
-        "key", "by_category", "status",
+        "key", "summary", "by_category", "status",
         "fix_version", "target_version",
         "dev_sp_existing", "dev_sp_proposed",
         "qe_sp_existing", "qe_sp_proposed",
@@ -102,6 +102,7 @@ class _EpicTally:
         self, key: str, *, status: str = "",
     ) -> None:
         self.key = key
+        self.summary: str = ""
         self.by_category: dict[str, int] = {}
         self.status = status
         self.fix_version: str = ""
@@ -669,9 +670,10 @@ def _process_epic(
             "",
         ]
 
-    # Populate tally with version metadata immediately after fetch
-    # so the data is available even if the epic exits early (grooming).
+    # Populate tally with summary and version metadata immediately
+    # after fetch so data is available even on early exits (grooming).
     tally = ctx.counters._get_or_create_tally(epic_key)
+    tally.summary = epic.summary
     fields = getattr(epic_issue, "fields", None)
     fix_versions = getattr(fields, "fixVersions", None) or []
     if fix_versions:
@@ -956,32 +958,35 @@ def _build_report_summary(
     action = "created" if apply else "would create"
 
     if counters.epic_tallies:
-        # Table 1 sorts by fix_version descending (epics with a version
-        # come first, then no-version epics), then by status, then key.
-        sorted_by_version = sorted(
-            counters.epic_tallies,
-            key=lambda t: (
-                "" if t.fix_version else "\xff",  # blank sorts before \xff
-                t.fix_version,
-                _STATUS_ORDER.get(t.status, 5),
-                t.key,
-            ),
+        # ── Partition tallies for the three planning sub-tables ───────
+        # 1. Has fixVersion  → "Fix Version Epics"
+        # 2. No fixVersion, has targetVersion → "Target Version Epics"
+        # 3. Neither → "Unversioned Epics"
+        def _version_sort_key(t: _EpicTally) -> tuple:
+            return (_STATUS_ORDER.get(t.status, 5), t.key)
+
+        fix_ver_tallies = sorted(
+            [t for t in counters.epic_tallies if t.fix_version],
+            key=_version_sort_key,
         )
-        # Table 2 keeps the original status-first ordering.
+        target_ver_tallies = sorted(
+            [t for t in counters.epic_tallies
+             if not t.fix_version and t.target_version],
+            key=_version_sort_key,
+        )
+        unversioned_tallies = sorted(
+            [t for t in counters.epic_tallies
+             if not t.fix_version and not t.target_version],
+            key=_version_sort_key,
+        )
+
+        # Status-first order for Table 2 (all epics)
         sorted_tallies = sorted(
             counters.epic_tallies,
             key=lambda t: (_STATUS_ORDER.get(t.status, 5), t.key),
         )
 
-        # ── Table 1: Epic Planning Overview ──────────────────────────
-        lines.append("### Epic Planning Overview")
-        lines.append("")
-        lines.append(
-            "| Epic | Status | Fix Ver | Target Ver"
-            " | Dev SP | QE SP | Docs SP |"
-        )
-        lines.append("| --- | --- | --- | --- | --- | --- | --- |")
-        for tally in sorted_by_version:
+        def _planning_row(tally: _EpicTally) -> str:
             anchor = _epic_anchor(tally.key)
             link = f"[{tally.key}](#{anchor})"
             status = tally.status or ""
@@ -1002,11 +1007,71 @@ def _build_report_summary(
                     tally.docs_sp_existing, tally.docs_sp_proposed,
                 )
             )
-            lines.append(
-                f"| {link} | {status} | {fix_ver} | {target_ver}"
-                f" | {dev_sp} | {qe_sp} | {docs_sp} |"
+            summary = tally.summary or ""
+            return (
+                f"| {link} | {summary} | {status} | {fix_ver}"
+                f" | {target_ver} | {dev_sp} | {qe_sp} | {docs_sp} |"
             )
-        lines.append("")
+
+        def _planning_totals(tallies: list[_EpicTally]) -> str:
+            dev_ex = sum(t.dev_sp_existing for t in tallies)
+            dev_pr = sum(t.dev_sp_proposed for t in tallies)
+            qe_ex = sum(
+                t.qe_sp_existing for t in tallies if not t.has_no_qe
+            )
+            qe_pr = sum(
+                t.qe_sp_proposed for t in tallies if not t.has_no_qe
+            )
+            docs_ex = sum(
+                t.docs_sp_existing for t in tallies if not t.has_no_doc
+            )
+            docs_pr = sum(
+                t.docs_sp_proposed for t in tallies if not t.has_no_doc
+            )
+            return (
+                f"| **Total** | | | | | {_sp_cell(dev_ex, dev_pr)}"
+                f" | {_sp_cell(qe_ex, qe_pr)}"
+                f" | {_sp_cell(docs_ex, docs_pr)} |"
+            )
+
+        _PLANNING_HEADER = (
+            "| Epic | Summary | Status | Fix Ver | Target Ver"
+            " | Dev SP | QE SP | Docs SP |"
+        )
+        _PLANNING_SEP = "| --- | --- | --- | --- | --- | --- | --- | --- |"
+
+        # ── Table 1a: Fix Version Epics ───────────────────────────────
+        if fix_ver_tallies:
+            lines.append("### Fix Version Epics")
+            lines.append("")
+            lines.append(_PLANNING_HEADER)
+            lines.append(_PLANNING_SEP)
+            for tally in fix_ver_tallies:
+                lines.append(_planning_row(tally))
+            lines.append(_planning_totals(fix_ver_tallies))
+            lines.append("")
+
+        # ── Table 1b: Target Version Epics ───────────────────────────
+        if target_ver_tallies:
+            lines.append("### Target Version Epics")
+            lines.append("")
+            lines.append(_PLANNING_HEADER)
+            lines.append(_PLANNING_SEP)
+            for tally in target_ver_tallies:
+                lines.append(_planning_row(tally))
+            lines.append(_planning_totals(target_ver_tallies))
+            lines.append("")
+
+        # ── Table 1c: Unversioned Epics ──────────────────────────────
+        if unversioned_tallies:
+            lines.append("### Unversioned Epics")
+            lines.append("")
+            lines.append(_PLANNING_HEADER)
+            lines.append(_PLANNING_SEP)
+            for tally in unversioned_tallies:
+                lines.append(_planning_row(tally))
+            lines.append(_planning_totals(unversioned_tallies))
+            lines.append("")
 
         # ── Table 2: Agent Proposed Stories ──────────────────────────
         all_cats = sorted(counters.by_category)
@@ -1016,15 +1081,16 @@ def _build_report_summary(
             cat_headers = " | ".join(all_cats)
             cat_sep = " | ".join("---" for _ in all_cats)
             lines.append(
-                f"| Epic | Status | {cat_headers} | Total |"
+                f"| Epic | Summary | Status | {cat_headers} | Total |"
             )
-            lines.append(f"| --- | --- | {cat_sep} | --- |")
+            lines.append(f"| --- | --- | --- | {cat_sep} | --- |")
         else:
-            lines.append("| Epic | Status | Total |")
-            lines.append("| --- | --- | --- |")
+            lines.append("| Epic | Summary | Status | Total |")
+            lines.append("| --- | --- | --- | --- |")
         for tally in sorted_tallies:
             anchor = _epic_anchor(tally.key)
             link = f"[{tally.key}](#{anchor})"
+            summary = tally.summary or ""
             status = tally.status or ""
             if all_cats:
                 cols = " | ".join(
@@ -1032,11 +1098,12 @@ def _build_report_summary(
                     for c in all_cats
                 )
                 lines.append(
-                    f"| {link} | {status} | {cols} | {tally.total} |"
+                    f"| {link} | {summary} | {status}"
+                    f" | {cols} | {tally.total} |"
                 )
             else:
                 lines.append(
-                    f"| {link} | {status} | {tally.total} |"
+                    f"| {link} | {summary} | {status} | {tally.total} |"
                 )
         if all_cats:
             total_cols = " | ".join(
@@ -1044,11 +1111,11 @@ def _build_report_summary(
                 for c in all_cats
             )
             lines.append(
-                f"| **Total** | | {total_cols} | {counters.created} |"
+                f"| **Total** | | | {total_cols} | {counters.created} |"
             )
         else:
             lines.append(
-                f"| **Total** | | {counters.created} |"
+                f"| **Total** | | | {counters.created} |"
             )
         lines.append("")
 
