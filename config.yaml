@@ -5,6 +5,8 @@ jira:
   version_format: "CNV v{version}"
   jql_template: "project = {project} AND type = Epic AND created >= -{since_days}d"
   child_issues_jql_template: "project = {project} AND \"Epic Link\" = {epic_key}"
+  # Custom field ID for the "Target Version" field (run client.fields() once to discover)
+  target_version_field: "customfield_10855"
 
 creation:
   project: "CNV"
@@ -22,6 +24,8 @@ grooming:
   min_description_length: 50
   min_children: 1
   llm_clarity_check: true
+  no_qe_label: "no-qe"
+  no_doc_label: "no-doc"
 
 discovery:
   repos:
@@ -92,6 +96,17 @@ analysis:
       - "z-stream release"
       - "release tracker"
       - "release cadence"
+      - "weekly report"
+      - "updates for the"
+      - "strategic: observability spikes"
+      - "metrics backlog"
+      - "validate public license"
+      - "reduce flakiness"
+      - "must-gather"
+      - "prioritization needed"
+      - "update existing"
+      - "update alerts that are impacted"
+      - "separate kubevirt observability out"
 
   coverage_keywords:
     metrics:

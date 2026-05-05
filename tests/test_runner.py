@@ -1260,3 +1260,437 @@ class TestFeedbackFooter:
         # Markdown [text](url) must NOT appear — Jira uses [text|url]
         footer = self._footer()
         assert "](http" not in footer
+
+
+class TestClassifyChildCategory:
+    """Tests for _classify_child_category heuristic."""
+
+    def _child(self, summary="", labels=None):
+        from schemas.issue_doc import IssueDoc
+        return IssueDoc(
+            key="CNV-1",
+            summary=summary,
+            labels=labels or [],
+        )
+
+    def test_qe_label(self):
+        from agent.runner import _classify_child_category
+        assert _classify_child_category(
+            self._child(labels=["qe"])
+        ) == "qe"
+
+    def test_qe_summary_prefix(self):
+        from agent.runner import _classify_child_category
+        assert _classify_child_category(
+            self._child(summary="[QE] test coverage")
+        ) == "qe"
+
+    def test_docs_label(self):
+        from agent.runner import _classify_child_category
+        assert _classify_child_category(
+            self._child(labels=["docs"])
+        ) == "docs"
+
+    def test_docs_summary_prefix(self):
+        from agent.runner import _classify_child_category
+        assert _classify_child_category(
+            self._child(summary="[Docs] update runbook")
+        ) == "docs"
+
+    def test_dev_fallback(self):
+        from agent.runner import _classify_child_category
+        assert _classify_child_category(
+            self._child(summary="Add metric for VM lifecycle")
+        ) == "dev"
+
+    def test_dev_fallback_no_labels(self):
+        from agent.runner import _classify_child_category
+        assert _classify_child_category(
+            self._child()
+        ) == "dev"
+
+
+class TestEpicTallySpFields:
+    """Tests for _EpicTally SP and label fields."""
+
+    def test_default_sp_zero(self):
+        from agent.runner import _EpicTally
+        t = _EpicTally("CNV-1")
+        assert t.dev_sp_existing == 0
+        assert t.dev_sp_proposed == 0
+        assert t.qe_sp_existing == 0
+        assert t.qe_sp_proposed == 0
+        assert t.docs_sp_existing == 0
+        assert t.docs_sp_proposed == 0
+
+    def test_default_labels_false(self):
+        from agent.runner import _EpicTally
+        t = _EpicTally("CNV-1")
+        assert t.has_no_qe is False
+        assert t.has_no_doc is False
+
+    def test_default_versions_empty(self):
+        from agent.runner import _EpicTally
+        t = _EpicTally("CNV-1")
+        assert t.fix_version == ""
+        assert t.target_version == ""
+
+
+class TestSpCell:
+    """Tests for _sp_cell helper."""
+
+    def test_no_proposed(self):
+        from agent.runner import _sp_cell
+        assert _sp_cell(5, 0) == "5"
+
+    def test_with_proposed(self):
+        from agent.runner import _sp_cell
+        assert _sp_cell(5, 3) == "5 (+3)"
+
+    def test_both_zero(self):
+        from agent.runner import _sp_cell
+        assert _sp_cell(0, 0) == "0"
+
+    def test_only_proposed(self):
+        from agent.runner import _sp_cell
+        assert _sp_cell(0, 8) == "0 (+8)"
+
+
+class TestBuildReportSummaryTwoTables:
+    """Tests for the two-table structure of _build_report_summary."""
+
+    def _make_counters(self, tallies):
+        from agent.runner import _RunCounters
+        c = _RunCounters()
+        c.epic_tallies = tallies
+        return c
+
+    def test_planning_overview_header_present(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-100", status="groomed")
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "Epic Planning Overview" in text
+        assert "Fix Ver" in text
+        assert "Target Ver" in text
+        assert "Dev SP" in text
+        assert "QE SP" in text
+        assert "Docs SP" in text
+
+    def test_agent_proposed_stories_header_present(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-100", status="groomed")
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "Agent Proposed Stories" in text
+
+    def test_no_qe_shown_in_planning(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-200", status="groomed")
+        t.has_no_qe = True
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "no-QE" in text
+
+    def test_no_doc_shown_in_planning(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-300", status="groomed")
+        t.has_no_doc = True
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "no-doc" in text
+
+    def test_sp_format_with_proposed(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-400", status="groomed")
+        t.dev_sp_existing = 10
+        t.dev_sp_proposed = 5
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "10 (+5)" in text
+
+    def test_version_fields_shown(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-500", status="groomed")
+        t.fix_version = "CNV 5.0"
+        t.target_version = "CNV v5.0.0"
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "CNV 5.0" in text
+        assert "CNV v5.0.0" in text
+
+    def test_no_version_shows_dash(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-600", status="groomed")
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        # Both fix and target version default to "-"
+        assert "| - | - |" in text
+
+    def test_epic_key_linked_in_both_tables(self):
+        from agent.runner import _EpicTally, _build_report_summary
+        t = _EpicTally("CNV-700", status="groomed")
+        c = self._make_counters([t])
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "[CNV-700](#cnv-700)" in text
+
+    def test_sorted_by_status_errors_first(self):
+        from agent.runner import (
+            STATUS_ERROR, STATUS_GROOMED, _EpicTally,
+            _build_report_summary,
+        )
+        t1 = _EpicTally("CNV-800", status=STATUS_GROOMED)
+        t2 = _EpicTally("CNV-801", status=STATUS_ERROR)
+        c = self._make_counters([t1, t2])
+        lines = _build_report_summary(c, 2, apply=False)
+        text = "\n".join(lines)
+        pos_err = text.index("CNV-801")
+        pos_ok = text.index("CNV-800")
+        assert pos_err < pos_ok
+
+
+class TestCategoryGates:
+    """Tests that no-qe / no-doc labels gate story generation."""
+
+    def _make_epic_issue(self, key="CNV-900", labels=None):
+        epic_issue = MagicMock()
+        epic_issue.key = key
+        epic_issue.fields = MagicMock()
+        epic_issue.fields.summary = "Test epic"
+        epic_issue.fields.description = (
+            "A long description with enough content to pass "
+            "grooming checks and analysis heuristics."
+        )
+        epic_issue.fields.labels = labels or []
+        epic_issue.fields.components = []
+        epic_issue.fields.issuetype = MagicMock()
+        epic_issue.fields.issuetype.name = "Epic"
+        epic_issue.fields.fixVersions = []
+        return epic_issue
+
+    @patch("agent.runner._load_config")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.build_all_inventories", return_value={})
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner.build_analysis_result")
+    @patch("agent.runner.compose_stories")
+    @patch("agent.runner.find_broad_matching_stories", return_value=[])
+    def test_no_qe_removes_qe_from_compose(
+        self,
+        mock_broad,
+        mock_compose,
+        mock_analysis,
+        mock_fetch,
+        mock_inv,
+        mock_jira,
+        mock_config,
+    ):
+        from agent.runner import run
+        from schemas.issue_doc import IssueDoc
+        from schemas.stories import StoryPayload
+
+        mock_config.return_value = _minimal_cfg()
+        mock_jira.return_value = MagicMock()
+
+        epic_issue = self._make_epic_issue(labels=["no-qe"])
+        mock_jira.return_value.search_issues.return_value = [epic_issue]
+
+        _LONG_DESC = "A" * 100
+        epic_doc = IssueDoc(
+            key="CNV-900", summary="Test epic",
+            description=_LONG_DESC,
+            labels=["no-qe"], components=[],
+        )
+        mock_fetch.return_value = (epic_doc, [])
+        mock_analysis.return_value = {
+            "gaps": ["metrics"],
+            "epic_labels": ["no-qe"],
+            "epic_components": [],
+            "domain_keywords": [],
+        }
+        mock_compose.return_value = [
+            StoryPayload(
+                category="metrics",
+                summary="Add VM metric",
+                description="desc",
+            )
+        ]
+
+        result = run(
+            epic_keys=["CNV-900"],
+            apply=False,
+            use_llm=True,
+            categories=["metrics", "alerts", "qe"],
+        )
+
+        # compose_stories must have been called with categories
+        # that do NOT include "qe"
+        call_kwargs = mock_compose.call_args[1]
+        cats_used = call_kwargs.get(
+            "categories", mock_compose.call_args[0][1]
+            if len(mock_compose.call_args[0]) > 1 else []
+        )
+        assert "qe" not in cats_used
+
+    @patch("agent.runner._load_config")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.build_all_inventories", return_value={})
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner.build_analysis_result")
+    @patch("agent.runner.compose_stories")
+    @patch("agent.runner.find_broad_matching_stories", return_value=[])
+    def test_no_doc_removes_docs_from_compose(
+        self,
+        mock_broad,
+        mock_compose,
+        mock_analysis,
+        mock_fetch,
+        mock_inv,
+        mock_jira,
+        mock_config,
+    ):
+        from agent.runner import run
+        from schemas.issue_doc import IssueDoc
+        from schemas.stories import StoryPayload
+
+        mock_config.return_value = _minimal_cfg()
+        mock_jira.return_value = MagicMock()
+
+        epic_issue = self._make_epic_issue(labels=["no-doc"])
+        mock_jira.return_value.search_issues.return_value = [epic_issue]
+
+        _LONG_DESC = "A" * 100
+        epic_doc = IssueDoc(
+            key="CNV-900", summary="Test epic",
+            description=_LONG_DESC,
+            labels=["no-doc"], components=[],
+        )
+        mock_fetch.return_value = (epic_doc, [])
+        mock_analysis.return_value = {
+            "gaps": ["metrics"],
+            "epic_labels": ["no-doc"],
+            "epic_components": [],
+            "domain_keywords": [],
+        }
+        mock_compose.return_value = [
+            StoryPayload(
+                category="metrics",
+                summary="Add VM metric",
+                description="desc",
+            )
+        ]
+
+        result = run(
+            epic_keys=["CNV-900"],
+            apply=False,
+            use_llm=True,
+            categories=["metrics", "docs"],
+        )
+
+        call_kwargs = mock_compose.call_args[1]
+        cats_used = call_kwargs.get("categories", [])
+        assert "docs" not in cats_used
+
+    @patch("agent.runner._load_config")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.build_all_inventories", return_value={})
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner.build_analysis_result")
+    @patch("agent.runner.compose_stories")
+    @patch("agent.runner.find_broad_matching_stories", return_value=[])
+    def test_no_docs_alias_removes_docs(
+        self,
+        mock_broad,
+        mock_compose,
+        mock_analysis,
+        mock_fetch,
+        mock_inv,
+        mock_jira,
+        mock_config,
+    ):
+        from agent.runner import run
+        from schemas.issue_doc import IssueDoc
+        from schemas.stories import StoryPayload
+
+        mock_config.return_value = _minimal_cfg()
+        mock_jira.return_value = MagicMock()
+
+        epic_issue = self._make_epic_issue(labels=["no-docs"])
+        mock_jira.return_value.search_issues.return_value = [epic_issue]
+
+        _LONG_DESC = "A" * 100
+        epic_doc = IssueDoc(
+            key="CNV-900", summary="Test epic",
+            description=_LONG_DESC,
+            labels=["no-docs"], components=[],
+        )
+        mock_fetch.return_value = (epic_doc, [])
+        mock_analysis.return_value = {
+            "gaps": ["metrics"],
+            "epic_labels": ["no-docs"],
+            "epic_components": [],
+            "domain_keywords": [],
+        }
+        mock_compose.return_value = [
+            StoryPayload(
+                category="metrics",
+                summary="Add VM metric",
+                description="desc",
+            )
+        ]
+
+        result = run(
+            epic_keys=["CNV-900"],
+            apply=False,
+            use_llm=True,
+            categories=["metrics", "docs"],
+        )
+
+        call_kwargs = mock_compose.call_args[1]
+        cats_used = call_kwargs.get("categories", [])
+        assert "docs" not in cats_used
+
+
+class TestFeedbackCount:
+    """Tests for _fetch_open_feedback_count."""
+
+    def test_empty_repo_returns_none(self):
+        from agent.runner import _fetch_open_feedback_count
+        assert _fetch_open_feedback_count("") is None
+
+    def test_count_from_response(self):
+        from unittest.mock import MagicMock, patch
+        from agent.runner import _fetch_open_feedback_count
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'[{}, {}, {}]'
+        mock_resp.headers.get.return_value = ""
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            count = _fetch_open_feedback_count(
+                "https://github.com/sradco/cnv-epic-agent"
+            )
+        assert count == 3
+
+    def test_network_error_returns_none(self):
+        from agent.runner import _fetch_open_feedback_count
+        import urllib.error
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("timeout"),
+        ):
+            result = _fetch_open_feedback_count(
+                "https://github.com/sradco/cnv-epic-agent"
+            )
+        assert result is None

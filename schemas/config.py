@@ -31,6 +31,7 @@ class JiraConfig:
     child_issues_jql_template: str = (
         'project = {project} AND "Epic Link" = {epic_key}'
     )
+    target_version_field: str = ""
 
 
 @dataclass
@@ -55,6 +56,8 @@ class GroomingConfig:
     min_description_length: int = 50
     min_children: int = 1
     llm_clarity_check: bool = True
+    no_qe_label: str = "no-qe"
+    no_doc_label: str = "no-doc"
 
 
 @dataclass
@@ -212,6 +215,10 @@ class AppConfig:
                     j.get("child_issues_jql_template",
                            JiraConfig.child_issues_jql_template),
                 ),
+                target_version_field=str(
+                    j.get("target_version_field",
+                           JiraConfig.target_version_field),
+                ),
             ),
             creation=CreationConfig(
                 project=str(c.get("project", CreationConfig.project)),
@@ -262,6 +269,14 @@ class AppConfig:
                 llm_clarity_check=bool(
                     g.get("llm_clarity_check",
                            GroomingConfig.llm_clarity_check),
+                ),
+                no_qe_label=str(
+                    g.get("no_qe_label",
+                           GroomingConfig.no_qe_label),
+                ),
+                no_doc_label=str(
+                    g.get("no_doc_label",
+                           GroomingConfig.no_doc_label),
                 ),
             ),
             agent=AgentConfig(

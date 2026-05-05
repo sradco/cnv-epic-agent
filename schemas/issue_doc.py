@@ -20,9 +20,12 @@ class IssueDoc:
     issue_type: str = ""
     labels: list[str] | None = None
     components: list[str] | None = None
+    story_points: int = 0
 
     @classmethod
-    def from_jira(cls, issue: Any) -> "IssueDoc":
+    def from_jira(
+        cls, issue: Any, sp_field: str = "customfield_10028",
+    ) -> "IssueDoc":
         is_dict = isinstance(issue, dict)
         if is_dict:
             fields = issue.get("fields", issue)
@@ -54,6 +57,15 @@ class IssueDoc:
         )
         issue_type_name = _field(issuetype, "name") if issuetype else ""
 
+        raw_sp = (
+            fields.get(sp_field) if isinstance(fields, dict)
+            else getattr(fields, sp_field, None)
+        )
+        try:
+            sp = int(raw_sp) if raw_sp is not None else 0
+        except (ValueError, TypeError):
+            sp = 0
+
         return cls(
             key=key,
             summary=_field(fields, "summary"),
@@ -65,6 +77,7 @@ class IssueDoc:
                  else str(getattr(c, "name", c)))
                 for c in raw_components
             ],
+            story_points=sp,
         )
 
     @classmethod

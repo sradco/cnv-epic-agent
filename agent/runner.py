@@ -7,8 +7,11 @@ story categories (observability, docs, QE) with LLM-estimated story points.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -86,7 +89,14 @@ def _validate_config(cfg: dict[str, Any]) -> None:
 class _EpicTally:
     """Per-epic story counts by category and status."""
 
-    __slots__ = ("key", "by_category", "status")
+    __slots__ = (
+        "key", "by_category", "status",
+        "fix_version", "target_version",
+        "dev_sp_existing", "dev_sp_proposed",
+        "qe_sp_existing", "qe_sp_proposed",
+        "docs_sp_existing", "docs_sp_proposed",
+        "has_no_qe", "has_no_doc",
+    )
 
     def __init__(
         self, key: str, *, status: str = "",
@@ -94,6 +104,16 @@ class _EpicTally:
         self.key = key
         self.by_category: dict[str, int] = {}
         self.status = status
+        self.fix_version: str = ""
+        self.target_version: str = ""
+        self.dev_sp_existing: int = 0
+        self.dev_sp_proposed: int = 0
+        self.qe_sp_existing: int = 0
+        self.qe_sp_proposed: int = 0
+        self.docs_sp_existing: int = 0
+        self.docs_sp_proposed: int = 0
+        self.has_no_qe: bool = False
+        self.has_no_doc: bool = False
 
     def record(self, category: str) -> None:
         self.by_category[category] = (
@@ -211,12 +231,30 @@ def _children_as_dedup_entries(
     return entries
 
 
+def _classify_child_category(child: Any) -> str:
+    """Classify a child issue as 'qe', 'docs', or 'dev' (best-effort).
+
+    Checks labels and summary prefix to assign a bucket. Falls back to
+    'dev' so non-QE/docs work is not silently lost from SP totals.
+    """
+    labels = set(getattr(child, "labels", []) or [])
+    summary = (getattr(child, "summary", "") or "").lower()
+    if "qe" in labels or summary.startswith("[qe]"):
+        return "qe"
+    if labels & {"doc", "docs", "documentation"} or summary.startswith(
+        ("[docs]", "[doc]")
+    ):
+        return "docs"
+    return "dev"
+
+
 def _dedup_and_create(
     stories: list[StoryPayload],
     epic_key: str,
     obs_epic: dict[str, Any],
     existing: list[dict[str, Any]],
     ctx: _RunContext,
+    tally: _EpicTally | None = None,
 ) -> list[str]:
     """Dedup stories against existing, create or report each one."""
     lines: list[str] = []
@@ -237,6 +275,17 @@ def _dedup_and_create(
                 f"- SKIP (dup of {dup_key}): {story.summary}"
             )
             continue
+
+        # Accumulate proposed SP into tally (only non-dup stories)
+        if tally is not None and story.story_points:
+            cat = story.category
+            sp = story.story_points
+            if cat == "qe":
+                tally.qe_sp_proposed += sp
+            elif cat in ("docs", "documentation"):
+                tally.docs_sp_proposed += sp
+            else:
+                tally.dev_sp_proposed += sp
 
         if ctx.apply and ctx.version:
             try:
@@ -648,13 +697,50 @@ def _process_epic(
     )
     epic_header.append("")
 
+    # Populate tally with version and label metadata.
+    tally = ctx.counters._get_or_create_tally(epic_key)
+    fix_versions = getattr(
+        getattr(epic_issue, "fields", None), "fixVersions", None,
+    ) or []
+    if fix_versions:
+        tally.fix_version = fix_versions[0].get("name", "") if isinstance(
+            fix_versions[0], dict,
+        ) else getattr(fix_versions[0], "name", "")
+    tv_field = app_cfg.jira.target_version_field
+    if tv_field:
+        tv_raw = getattr(
+            getattr(epic_issue, "fields", None), tv_field, None,
+        )
+        if tv_raw is not None:
+            tally.target_version = (
+                tv_raw.get("value", "") if isinstance(tv_raw, dict)
+                else str(tv_raw)
+            )
+
+    # Sum existing child SP by category.
+    for child in children:
+        child_sp = child.story_points
+        if child_sp:
+            bucket = _classify_child_category(child)
+            if bucket == "qe":
+                tally.qe_sp_existing += child_sp
+            elif bucket == "docs":
+                tally.docs_sp_existing += child_sp
+            else:
+                tally.dev_sp_existing += child_sp
+
+    no_qe_label = app_cfg.grooming.no_qe_label
+    no_doc_label = app_cfg.grooming.no_doc_label
+
     epic_labels = set(result.get("epic_labels", []))
     epic_categories = list(enabled_categories)
-    if "no-doc" in epic_labels:
+    if no_doc_label in epic_labels or "no-docs" in epic_labels:
+        tally.has_no_doc = True
         epic_categories = [
             c for c in epic_categories if c != "docs"
         ]
-    if "no-qe" in epic_labels:
+    if no_qe_label in epic_labels:
+        tally.has_no_qe = True
         epic_categories = [
             c for c in epic_categories if c != "qe"
         ]
@@ -758,6 +844,7 @@ def _process_epic(
 
     story_lines = _dedup_and_create(
         stories, epic_key, obs_epic, existing, ctx,
+        tally=tally,
     )
 
     lines = epic_header + story_lines
@@ -785,12 +872,64 @@ def _jira_link(epic_key: str, cfg: dict[str, Any]) -> str:
     return epic_key
 
 
+def _fetch_open_feedback_count(
+    feedback_repo: str,
+) -> int | None:
+    """Return the number of open agent-feedback issues on GitHub.
+
+    Makes a single API call with per_page=100. If the response
+    contains exactly 100 items, checks the Link header for the
+    last page to compute a full count. Returns None on any error
+    so callers can gracefully skip the line.
+    """
+    if not feedback_repo:
+        return None
+    repo = feedback_repo.rstrip("/")
+    if repo.startswith("https://github.com/"):
+        repo = repo[len("https://github.com/"):]
+    url = (
+        f"https://api.github.com/repos/{repo}/issues"
+        f"?labels=agent-feedback&state=open&per_page=100"
+    )
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"Accept": "application/vnd.github+json",
+                     "User-Agent": "cnv-epic-agent"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read())
+            count = len(body)
+            if count < 100:
+                return count
+            link = resp.headers.get("Link", "")
+            if 'rel="last"' in link:
+                m = re.search(r'page=(\d+)>;\s*rel="last"', link)
+                if m:
+                    last_page = int(m.group(1))
+                    return (last_page - 1) * 100 + count
+            return count
+    except Exception:
+        logger.warning(
+            "Could not fetch feedback issue count from %s",
+            feedback_repo, exc_info=False,
+        )
+        return None
+
+
+def _sp_cell(existing: int, proposed: int) -> str:
+    """Format a story-points cell as '21 (+8)' or '0' or '0 (+3)'."""
+    if proposed:
+        return f"{existing} (+{proposed})"
+    return str(existing)
+
+
 def _build_report_summary(
     counters: _RunCounters,
     processed: int,
     apply: bool,
 ) -> list[str]:
-    """Build the summary tables for the report header."""
+    """Build two summary tables followed by run-level counters."""
     lines: list[str] = []
     lines.append("---")
     lines.append("")
@@ -799,46 +938,76 @@ def _build_report_summary(
 
     action = "created" if apply else "would create"
 
-    all_cats = sorted(counters.by_category)
     if counters.epic_tallies:
         sorted_tallies = sorted(
             counters.epic_tallies,
-            key=lambda t: (
-                _STATUS_ORDER.get(t.status, 5), t.key,
-            ),
+            key=lambda t: (_STATUS_ORDER.get(t.status, 5), t.key),
         )
 
+        # ── Table 1: Epic Planning Overview ──────────────────────────
+        lines.append("### Epic Planning Overview")
+        lines.append("")
+        lines.append(
+            "| Epic | Status | Fix Ver | Target Ver"
+            " | Dev SP | QE SP | Docs SP |"
+        )
+        lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+        for tally in sorted_tallies:
+            anchor = _epic_anchor(tally.key)
+            link = f"[{tally.key}](#{anchor})"
+            status = tally.status or ""
+            fix_ver = tally.fix_version or "-"
+            target_ver = tally.target_version or "-"
+            dev_sp = _sp_cell(
+                tally.dev_sp_existing, tally.dev_sp_proposed,
+            )
+            qe_sp = (
+                "no-QE" if tally.has_no_qe
+                else _sp_cell(
+                    tally.qe_sp_existing, tally.qe_sp_proposed,
+                )
+            )
+            docs_sp = (
+                "no-doc" if tally.has_no_doc
+                else _sp_cell(
+                    tally.docs_sp_existing, tally.docs_sp_proposed,
+                )
+            )
+            lines.append(
+                f"| {link} | {status} | {fix_ver} | {target_ver}"
+                f" | {dev_sp} | {qe_sp} | {docs_sp} |"
+            )
+        lines.append("")
+
+        # ── Table 2: Agent Proposed Stories ──────────────────────────
+        all_cats = sorted(counters.by_category)
+        lines.append("### Agent Proposed Stories")
+        lines.append("")
         if all_cats:
             cat_headers = " | ".join(all_cats)
             cat_sep = " | ".join("---" for _ in all_cats)
             lines.append(
-                f"| Epic | Status | {cat_headers}"
-                f" | Total |"
+                f"| Epic | Status | {cat_headers} | Total |"
             )
-            lines.append(
-                f"| --- | --- | {cat_sep}"
-                f" | --- |"
-            )
+            lines.append(f"| --- | --- | {cat_sep} | --- |")
         else:
             lines.append("| Epic | Status | Total |")
             lines.append("| --- | --- | --- |")
         for tally in sorted_tallies:
             anchor = _epic_anchor(tally.key)
             link = f"[{tally.key}](#{anchor})"
-            cols = " | ".join(
-                str(tally.by_category.get(c, 0))
-                for c in all_cats
-            )
             status = tally.status or ""
             if all_cats:
+                cols = " | ".join(
+                    str(tally.by_category.get(c, 0))
+                    for c in all_cats
+                )
                 lines.append(
-                    f"| {link} | {status} | {cols}"
-                    f" | {tally.total} |"
+                    f"| {link} | {status} | {cols} | {tally.total} |"
                 )
             else:
                 lines.append(
-                    f"| {link} | {status}"
-                    f" | {tally.total} |"
+                    f"| {link} | {status} | {tally.total} |"
                 )
         if all_cats:
             total_cols = " | ".join(
@@ -846,8 +1015,7 @@ def _build_report_summary(
                 for c in all_cats
             )
             lines.append(
-                f"| **Total** | | {total_cols} | "
-                f"{counters.created} |"
+                f"| **Total** | | {total_cols} | {counters.created} |"
             )
         else:
             lines.append(
@@ -860,8 +1028,7 @@ def _build_report_summary(
     lines.append(f"| Epics processed | {processed} |")
     if counters.needs_grooming:
         lines.append(
-            f"| Epics needing grooming | "
-            f"{counters.needs_grooming} |"
+            f"| Epics needing grooming | {counters.needs_grooming} |"
         )
     if counters.skipped_epics:
         lines.append(
@@ -874,13 +1041,9 @@ def _build_report_summary(
             f"| Stories skipped (dup) | {counters.skipped} |"
         )
     if counters.failed:
-        lines.append(
-            f"| Stories failed | {counters.failed} |"
-        )
+        lines.append(f"| Stories failed | {counters.failed} |")
     if counters.llm_errors:
-        lines.append(
-            f"| LLM errors | {counters.llm_errors} |"
-        )
+        lines.append(f"| LLM errors | {counters.llm_errors} |")
     if counters.sp_updated:
         lines.append(
             f"| Story points "
@@ -889,13 +1052,11 @@ def _build_report_summary(
         )
     if counters.sp_skipped:
         lines.append(
-            f"| Story points skipped | "
-            f"{counters.sp_skipped} |"
+            f"| Story points skipped | {counters.sp_skipped} |"
         )
     if counters.sp_failed:
         lines.append(
-            f"| Story points failed | "
-            f"{counters.sp_failed} |"
+            f"| Story points failed | {counters.sp_failed} |"
         )
     lines.append("")
 
@@ -1031,6 +1192,9 @@ def run(
 
     run_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    feedback_repo = app_cfg.agent.feedback_repo
+    feedback_count = _fetch_open_feedback_count(feedback_repo)
+
     header_lines: list[str] = [
         f"# Epic Agent Run ({'APPLY' if apply else 'DRY-RUN'})",
         "",
@@ -1042,8 +1206,14 @@ def run(
         f"- **Categories:** {', '.join(enabled_categories)}",
         f"- **Filters:** {', '.join(filters_active) if filters_active else '(none)'}",
         f"- **Run ID:** {run_id}",
-        "",
     ]
+    if feedback_count is not None:
+        issues_url = f"{feedback_repo.rstrip('/')}/issues?labels=agent-feedback&state=open"
+        header_lines.append(
+            f"- **Open feedback issues:** {feedback_count}"
+            f" — [review]({issues_url})"
+        )
+    header_lines.append("")
 
     epic_detail_lines: list[str] = []
     for epic_issue in epics_to_process:

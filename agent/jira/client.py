@@ -208,10 +208,18 @@ def fetch_epic_with_children(
     cfg: dict[str, Any],
     epic_key: str,
 ) -> tuple[IssueDoc, list[IssueDoc]]:
+    sp_field = (
+        cfg.get("creation", {}).get(
+            "story_points_field", "customfield_10028",
+        )
+    )
     epic_issue = client.issue(epic_key)
-    epic = IssueDoc.from_jira(epic_issue)
+    epic = IssueDoc.from_jira(epic_issue, sp_field=sp_field)
     children_raw = fetch_child_issues(client, cfg, epic_key)
-    children = [IssueDoc.from_jira(c) for c in children_raw]
+    children = [
+        IssueDoc.from_jira(c, sp_field=sp_field)
+        for c in children_raw
+    ]
     return epic, children
 
 

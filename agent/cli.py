@@ -136,7 +136,17 @@ def main() -> None:
         help=(
             "Write report to a file (in addition to stdout). "
             "A UTC timestamp is appended before the extension, "
-            "e.g. report-20260505-120000.md"
+            "e.g. report-20260505-120000.md (or .html with --format html)"
+        ),
+    )
+    parser.add_argument(
+        "--format",
+        choices=["markdown", "html"],
+        default="markdown",
+        help=(
+            "Output format: 'markdown' (default) or 'html'. "
+            "HTML generates a self-contained, shareable page "
+            "with collapsible epic sections and styled tables."
         ),
     )
     parser.add_argument(
@@ -179,14 +189,23 @@ def main() -> None:
         no_cache=args.no_cache,
     )
 
-    print(report)
+    output_format = args.format
+
+    if output_format == "html":
+        from agent.export.html_report import markdown_to_html
+        rendered = markdown_to_html(report)
+    else:
+        rendered = report
+
+    print(rendered)
 
     if args.output:
-        base, ext = os.path.splitext(args.output)
+        base, _ext = os.path.splitext(args.output)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        ext = ".html" if output_format == "html" else ".md"
         output_path = f"{base}-{timestamp}{ext}"
         with open(output_path, "w", encoding="utf-8") as fh:
-            fh.write(report)
+            fh.write(rendered)
             fh.write("\n")
         logging.getLogger(__name__).info(
             "Report written to %s", output_path,
