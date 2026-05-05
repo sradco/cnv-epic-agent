@@ -16,7 +16,7 @@ class IssueDoc:
 
     key: str
     summary: str
-    description: str
+    description: str = ""
     issue_type: str = ""
     labels: list[str] | None = None
     components: list[str] | None = None

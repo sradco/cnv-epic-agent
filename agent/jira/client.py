@@ -22,6 +22,11 @@ _JIRA_MAX_RETRIES = 3
 _JIRA_INITIAL_BACKOFF_S = 1.0
 
 
+def _escape_jql(value: str) -> str:
+    """Escape a value for safe use inside JQL double-quoted strings."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _retry_on_jira_error(func):
     """Decorator: retry Jira API calls with exponential backoff.
 
@@ -130,24 +135,27 @@ def build_epic_jql(
     skip_label = cfg.get("grooming", {}).get(
         "skip_label", "cnv-grooming-agent-skip",
     )
-    jql += f' AND labels != "{skip_label}"'
+    jql += f' AND labels != "{_escape_jql(skip_label)}"'
 
     if component:
-        jql += f' AND component = "{component}"'
+        jql += f' AND component = "{_escape_jql(component)}"'
 
     if fix_version and target_version:
         jql += (
-            f' AND (fixVersion = "{fix_version}"'
-            f' OR "Target Version" = "{target_version}")'
+            f' AND (fixVersion = "{_escape_jql(fix_version)}"'
+            f' OR "Target Version" = "{_escape_jql(target_version)}")'
         )
     elif fix_version:
-        jql += f' AND fixVersion = "{fix_version}"'
+        jql += f' AND fixVersion = "{_escape_jql(fix_version)}"'
     elif target_version:
-        jql += f' AND "Target Version" = "{target_version}"'
+        jql += (
+            f' AND "Target Version" = '
+            f'"{_escape_jql(target_version)}"'
+        )
 
     if labels:
         for label in labels:
-            jql += f' AND labels = "{label}"'
+            jql += f' AND labels = "{_escape_jql(label)}"'
     return jql
 
 
@@ -361,7 +369,7 @@ def find_existing_obs_stories(
     if obs_epic_key and obs_epic_key != "(DRY-RUN)":
         jql = (
             f'"Epic Link" = {obs_epic_key} '
-            f'AND labels = "{story_label}"'
+            f'AND labels = "{_escape_jql(story_label)}"'
         )
         try:
             _collect(_search_all(client, jql))
@@ -373,8 +381,8 @@ def find_existing_obs_stories(
 
     # 2. Any issue with the scanner label referencing the source epic
     jql_label = (
-        f'labels = "{story_label}" '
-        f'AND summary ~ "{source_epic_key}"'
+        f'labels = "{_escape_jql(story_label)}" '
+        f'AND summary ~ "{_escape_jql(source_epic_key)}"'
     )
     try:
         _collect(client.search_issues(jql_label, maxResults=50))
@@ -420,7 +428,7 @@ def find_broad_matching_stories(
         return []
 
     keyword_clause = " OR ".join(
-        f'summary ~ "{kw}"' for kw in usable
+        f'summary ~ "{_escape_jql(kw)}"' for kw in usable
     )
     jql = (
         f"project = {project} "
@@ -580,9 +588,9 @@ def find_or_create_obs_epic(
 
     jql = (
         f'project = {project} AND type = Epic '
-        f'AND labels = "{obs_epic_label}" '
-        f'AND (fixVersion = "{jira_version}"'
-        f' OR "Target Version" = "{jira_version}")'
+        f'AND labels = "{_escape_jql(obs_epic_label)}" '
+        f'AND (fixVersion = "{_escape_jql(jira_version)}"'
+        f' OR "Target Version" = "{_escape_jql(jira_version)}")'
     )
     results = client.search_issues(jql, maxResults=5)
     if results:

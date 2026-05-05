@@ -58,6 +58,15 @@ If an epic is flagged by either tier:
   comment with the specific reason (from the LLM when available),
   then skips the epic
 
+The agent **re-evaluates** previously flagged epics on each run
+(they may have been updated), but **throttles comments** — it
+will not post another grooming comment until
+`grooming.comment_cooldown_days` (default: 7) have passed since
+the last agent comment.
+
+Epics with the `cnv-grooming-agent-skip` label are excluded
+from JQL queries entirely and never processed.
+
 Thresholds and settings are configurable in `config.yaml` under
 `grooming:`.
 
@@ -70,8 +79,21 @@ The agent clones and scans all configured upstream repos
 - **Alerting rules** — parsed from PrometheusRule YAML files
 - **Recording rules** — parsed from rule group definitions
 - **Dashboards and panels** — parsed from Grafana/Perses JSON
+- **Official metrics reference** — parsed from `docs/metrics.md`
+  in `kubevirt/monitoring`, the auto-generated table of all
+  metrics and recording rules across all KubeVirt operators
+- **Alert runbooks** — discovered from `docs/runbooks/` in
+  `kubevirt/monitoring`; the list of alerts that already have
+  runbooks is included in the LLM prompt so it doesn't propose
+  redundant docs stories
 
-Results are cached per branch for the lifetime of the process.
+Source-code discoveries take precedence over the docs reference
+when both provide the same metric name.
+
+Results are cached in two layers: an in-process cache (per
+branch, lifetime of the process) and a **filesystem cache**
+(default TTL: 1 hour, stored under `~/.cache/cnv-epic-agent/`).
+Use `--no-cache` to force a fresh scan.
 
 ### 4. Need Assessment (advisory)
 
@@ -140,16 +162,28 @@ with:
   Virtualization
 - **Epic context** — component, labels, description, child issues,
   gaps, and inventory-backed proposals
+- **Naming conventions reference** — existing metric, alert, and
+  recording rule names from the inventory, grouped by prefix, so
+  the LLM follows established patterns (e.g. `kubevirt_vmi_*`,
+  CamelCase alert names). Includes the list of alerts that already
+  have runbooks
 - **Category-specific rules**:
   - Observability stories must include "Why this matters", "Who
     benefits", "How it is used"
+  - Metrics must track runtime behavior, not configuration state
+    already visible in the console UI
+  - Metric type and semantics must match the proposed alert
+    condition
   - Dashboards must serve real operator workflows, prefer adding
     panels to existing dashboards
-  - Docs stories only for user-facing changes
+  - Docs stories only for user-facing changes; runbook docs only
+    for alerts without existing runbooks
   - QE stories split by test type (metric unit tests, alert rule
     validation, dashboard verification, end-to-end, upgrade/rollback)
   - QE distinguishes between genuinely new vs. migrated/refactored
     items
+- **Few-shot examples** of correct vs. incorrect judgment to
+  calibrate the LLM against common anti-patterns
 - The LLM may return an **empty list** if the epic doesn't warrant
   new stories
 
@@ -185,7 +219,19 @@ version-scoped observability epic:
 - Each story is **linked** to the source feature epic
 - **Story points** estimated by the LLM (Fibonacci: 1,2,3,5,8,13)
 
-### 12. Story Point Estimation for Existing Issues
+### 12. Report Summary
+
+Both dry-run and apply modes end with a structured summary:
+
+- **Per-epic table** — shows each epic with story counts by
+  category (metrics, alerts, docs, qe, ...), total, and a
+  **Status** column (`groomed`, `needs grooming`, or
+  `nothing to do`)
+- **Overall statistics** — epics processed, stories
+  created/would create, duplicates skipped, LLM errors, and
+  story points set
+
+### 13. Story Point Estimation for Existing Issues
 
 When `story_points.estimate_existing` is enabled, the agent also
 scans existing unsized stories under the source feature epic and
@@ -205,10 +251,16 @@ cnv-epic-agent/
     analyzer/         — Gap analysis (analysis.py, formatter.py)
     planner/          — LLM story composition (planner.py, llm.py)
     jira/             — Jira REST client (auth, query, create)
-    discovery/        — Code scanning (metrics, alerts, dashboards)
-  schemas/            — Shared data contracts (StoryPayload, IssueDoc)
-  prompts/            — Shared prompt templates (SYSTEM_PROMPT)
+    discovery/        — Code scanning (metrics, alerts, dashboards,
+                        runbooks, metrics.md parsing)
+  schemas/            — Shared data contracts
+    config.py         — Typed AppConfig dataclass hierarchy
+    stories.py        — StoryPayload, JSON schemas
+    issue_doc.py      — IssueDoc (Jira issue representation)
+  prompts/            — Shared prompt templates (SYSTEM_PROMPT,
+                        category rules, few-shot examples)
   config.yaml         — All settings
+  pyproject.toml      — Project metadata and dependencies
   tests/              — Unit tests
 ```
 
@@ -216,11 +268,16 @@ cnv-epic-agent/
 
 - **Single CLI agent** — `agent/planner/` calls LLM via litellm; runs interactively or in CI
 - **Pluggable categories** — enabled via `config.yaml` `agent.enabled_categories`
+- **Typed configuration** — `schemas/config.py` provides a
+  validated `AppConfig` dataclass hierarchy loaded from YAML
 - **Shared schemas and prompts** — `schemas/` and `prompts/` keep data contracts in one place
 
 ## Quick Start
 
 ```bash
+# Install (editable, with dev deps)
+pip install -e ".[dev]"
+
 # Set credentials
 export JIRA_EMAIL="you@redhat.com"
 export JIRA_TOKEN="your-atlassian-api-token"
@@ -256,6 +313,12 @@ python -m agent.cli --version 4.22 --no-llm
 
 # Override the LLM model
 LLM_MODEL=gemini/gemini-2.5-flash python -m agent.cli --version 4.22
+
+# Use an alternate config file
+python -m agent.cli --version 4.22 --config /path/to/config.yaml
+
+# Force fresh inventory scan (skip cache)
+python -m agent.cli --version 4.22 --no-cache
 ```
 
 The CLI agent supports any LLM provider via
@@ -308,24 +371,25 @@ Story points are estimated by the LLM for all categories.
 
 ## Configuration
 
-All settings are in `config.yaml`:
+All settings are in `config.yaml` (override with `--config`):
 
 | Section | Purpose |
 |---------|---------|
 | `jira:` | JQL templates, default project |
-| `creation:` | Project, component, labels, epic format, story points field |
-| `grooming:` | Label, thresholds, comment for under-specified epics |
-| `discovery:` | Upstream repo URLs for inventory scanning |
+| `creation:` | Project, component, labels, epic format, story points field, observability epic label |
+| `grooming:` | Label, skip label, thresholds, LLM clarity check, comment cooldown |
+| `discovery:` | Upstream repo URLs for inventory scanning (metrics, alerts, dashboards, runbooks, metrics.md) |
 | `telemetry:` | CMO allowlist URL |
 | `analysis:` | Need-assessment keywords, coverage keywords |
 | `proposals:` | Feature type signals |
 | `observability_patterns:` | Templates for 5 domains (migration, storage, networking, api_controller, performance) |
-| `agent:` | Default LLM model, max stories, enabled categories, category guidance, story point estimation |
+| `agent:` | Default LLM model, max stories, enabled categories, category guidance, story point estimation, temperature |
 | `subtask_templates:` | Story description templates for template-based mode |
 
 ## Running Tests
 
 ```bash
 cd cnv-epic-agent
-uv run --with pytest,pyyaml,jira,httpx pytest tests/ -v
+pip install -e ".[dev]"
+pytest tests/ -v
 ```

@@ -2,11 +2,8 @@
 
 import json
 import os
-import sys
 
 import yaml
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.analyzer.analysis import (
     IssueDoc,
@@ -884,6 +881,180 @@ class TestMetricBackingFilter:
             all_coverage_categories=[],
         )
         assert proposals["dashboards"]["proposed"] == []
+
+
+class TestNamingConventions:
+    """Tests for naming convention extraction."""
+
+    def test_naming_conventions_in_analysis_result(self):
+        from agent.discovery.discover import (
+            MetricInfo, AlertRuleInfo, RecordingRuleInfo,
+            ObservabilityInventory,
+        )
+        inv = ObservabilityInventory(
+            repo_path="test",
+            metrics=[
+                MetricInfo(
+                    name="kubevirt_vmi_phase_count",
+                    help="Number of VMIs per phase",
+                    metric_type="gauge",
+                    file="f", line=1,
+                ),
+                MetricInfo(
+                    name="kubevirt_vmi_info",
+                    help="VMI information",
+                    metric_type="gauge",
+                    file="f", line=2,
+                ),
+                MetricInfo(
+                    name="kubevirt_cdi_import_status",
+                    help="CDI import status",
+                    metric_type="gauge",
+                    file="f", line=3,
+                ),
+            ],
+            alerts=[
+                AlertRuleInfo(
+                    name="KubeVirtVMIExcessiveMigrations",
+                    expr="increase(...) > 10",
+                    severity="warning",
+                    file="f", line=1,
+                    source_format="yaml",
+                ),
+            ],
+            recording_rules=[
+                RecordingRuleInfo(
+                    name="kubevirt:vmi_status_running:count",
+                    expr="count(...)",
+                    file="f", line=1,
+                    source_format="yaml",
+                ),
+            ],
+        )
+        epic = IssueDoc(
+            key="CNV-99", summary="Test epic",
+            description="Cross-cluster migration feature.",
+        )
+        cfg = _load_config()
+        result = build_analysis_result(
+            epic, [], cfg, inventory=inv,
+        )
+
+        nc = result["naming_conventions"]
+        assert "metrics_by_prefix" in nc
+        assert "kubevirt_vmi" in nc["metrics_by_prefix"]
+        assert "kubevirt_cdi" in nc["metrics_by_prefix"]
+        assert "alert_names" in nc
+        assert (
+            "KubeVirtVMIExcessiveMigrations"
+            in nc["alert_names"]
+        )
+        assert "recording_rule_names" in nc
+        assert (
+            "kubevirt:vmi_status_running:count"
+            in nc["recording_rule_names"]
+        )
+
+    def test_naming_conventions_include_runbooks(self):
+        from agent.discovery.discover import (
+            RunbookInfo, ObservabilityInventory,
+        )
+        inv = ObservabilityInventory(
+            repo_path="test",
+            runbooks=[
+                RunbookInfo(
+                    alert_name="KubeVirtVMIExcessiveMigrations",
+                    file="docs/runbooks/KubeVirtVMIExcessiveMigrations.md",
+                    repo="monitoring",
+                ),
+                RunbookInfo(
+                    alert_name="CDIOperatorDown",
+                    file="docs/runbooks/CDIOperatorDown.md",
+                    repo="monitoring",
+                ),
+            ],
+        )
+        epic = IssueDoc(
+            key="CNV-99", summary="Test epic",
+            description="Some desc.",
+        )
+        cfg = _load_config()
+        result = build_analysis_result(
+            epic, [], cfg, inventory=inv,
+        )
+
+        nc = result["naming_conventions"]
+        assert "alerts_with_runbooks" in nc
+        assert (
+            "KubeVirtVMIExcessiveMigrations"
+            in nc["alerts_with_runbooks"]
+        )
+        assert (
+            "CDIOperatorDown"
+            in nc["alerts_with_runbooks"]
+        )
+
+    def test_naming_conventions_empty_without_inventory(self):
+        epic = IssueDoc(
+            key="CNV-99", summary="Test epic",
+            description="Some description.",
+        )
+        cfg = _load_config()
+        result = build_analysis_result(epic, [], cfg)
+
+        assert result["naming_conventions"] == {}
+
+    def test_naming_conventions_in_prompt(self):
+        from prompts.templates import (
+            build_story_composition_prompt,
+        )
+        analysis = {
+            "epic_key": "CNV-99",
+            "epic_summary": "Test epic",
+            "epic_description": "desc",
+            "child_issues": [],
+            "domain_keywords": [],
+            "gaps": [],
+            "proposals": {},
+            "naming_conventions": {
+                "metrics_by_prefix": {
+                    "kubevirt_vmi": [
+                        "kubevirt_vmi_info",
+                        "kubevirt_vmi_phase_count",
+                    ],
+                },
+                "alert_names": [
+                    "KubeVirtVMIExcessiveMigrations",
+                ],
+            },
+            "dashboard_targets": [],
+            "telemetry_suggestions": [],
+        }
+        prompt = build_story_composition_prompt(analysis)
+
+        assert "Naming conventions" in prompt
+        assert "kubevirt_vmi_info" in prompt
+        assert "KubeVirtVMIExcessiveMigrations" in prompt
+
+    def test_naming_conventions_omitted_when_empty(self):
+        from prompts.templates import (
+            build_story_composition_prompt,
+        )
+        analysis = {
+            "epic_key": "CNV-99",
+            "epic_summary": "Test",
+            "epic_description": "",
+            "child_issues": [],
+            "domain_keywords": [],
+            "gaps": [],
+            "proposals": {},
+            "naming_conventions": {},
+            "dashboard_targets": [],
+            "telemetry_suggestions": [],
+        }
+        prompt = build_story_composition_prompt(analysis)
+
+        assert "Naming conventions" not in prompt
 
 
 if __name__ == "__main__":

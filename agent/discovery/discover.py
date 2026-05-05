@@ -7,11 +7,14 @@ by parsing Go source files and YAML PrometheusRule manifests.
 
 from __future__ import annotations
 
+import hashlib
+import json as _json
 import logging
 import os
 import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -79,6 +82,14 @@ class TelemetryAllowlistEntry:
 
 
 @dataclass
+class RunbookInfo:
+    """An alert runbook discovered in the monitoring repo."""
+    alert_name: str
+    file: str
+    repo: str = ""
+
+
+@dataclass
 class ObservabilityInventory:
     """Everything found in a repo checkout."""
     repo_path: str
@@ -88,6 +99,7 @@ class ObservabilityInventory:
     dashboards: list[DashboardInfo] = field(default_factory=list)
     panels: list[PanelInfo] = field(default_factory=list)
     telemetry_allowlist: list[TelemetryAllowlistEntry] = field(default_factory=list)
+    runbooks: list[RunbookInfo] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -124,7 +136,81 @@ class ObservabilityInventory:
                  "file": t.file, "repo": t.repo}
                 for t in self.telemetry_allowlist
             ],
+            "runbooks": [
+                {"alert_name": rb.alert_name, "file": rb.file,
+                 "repo": rb.repo}
+                for rb in self.runbooks
+            ],
         }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ObservabilityInventory:
+        """Reconstruct an inventory from its to_dict() representation."""
+        return cls(
+            repo_path=d.get("repo_path", ""),
+            metrics=[
+                MetricInfo(
+                    name=m["name"], help=m["help"],
+                    metric_type=m["type"], file=m["file"],
+                    line=m["line"], repo=m.get("repo", ""),
+                )
+                for m in d.get("metrics", [])
+            ],
+            alerts=[
+                AlertRuleInfo(
+                    name=a["name"], expr=a["expr"],
+                    severity=a["severity"], file=a["file"],
+                    line=a["line"],
+                    source_format=a.get("source", ""),
+                    repo=a.get("repo", ""),
+                )
+                for a in d.get("alerts", [])
+            ],
+            recording_rules=[
+                RecordingRuleInfo(
+                    name=r["name"], expr=r["expr"],
+                    file=r["file"], line=r["line"],
+                    source_format=r.get("source", ""),
+                    repo=r.get("repo", ""),
+                )
+                for r in d.get("recording_rules", [])
+            ],
+            dashboards=[
+                DashboardInfo(
+                    name=db["name"], file=db["file"],
+                    dashboard_type=db.get("type", ""),
+                    repo=db.get("repo", ""),
+                )
+                for db in d.get("dashboards", [])
+            ],
+            panels=[
+                PanelInfo(
+                    name=p["name"],
+                    dashboard=p.get("dashboard", ""),
+                    queries=p.get("queries", []),
+                    file=p["file"],
+                    repo=p.get("repo", ""),
+                )
+                for p in d.get("panels", [])
+            ],
+            telemetry_allowlist=[
+                TelemetryAllowlistEntry(
+                    metric_name=t["metric_name"],
+                    match_expr=t["match_expr"],
+                    file=t["file"],
+                    repo=t.get("repo", ""),
+                )
+                for t in d.get("telemetry_allowlist", [])
+            ],
+            runbooks=[
+                RunbookInfo(
+                    alert_name=rb["alert_name"],
+                    file=rb["file"],
+                    repo=rb.get("repo", ""),
+                )
+                for rb in d.get("runbooks", [])
+            ],
+        )
 
     def summary(self) -> str:
         return (
@@ -670,6 +756,61 @@ def fetch_repo(
     return local_path
 
 
+_RUNBOOK_DIRS = ("docs/runbooks", "runbooks")
+
+
+def _scan_runbooks(
+    repo: Path,
+    repo_short: str,
+) -> list[RunbookInfo]:
+    """Scan for alert runbook markdown files in standard locations."""
+    runbooks: list[RunbookInfo] = []
+    for subdir in _RUNBOOK_DIRS:
+        rb_dir = repo / subdir
+        if not rb_dir.is_dir():
+            continue
+        for f in sorted(rb_dir.iterdir()):
+            if not f.suffix == ".md":
+                continue
+            alert_name = f.stem
+            if not alert_name[0].isupper():
+                continue
+            rel = str(f.relative_to(repo))
+            runbooks.append(RunbookInfo(
+                alert_name=alert_name,
+                file=rel,
+                repo=repo_short,
+            ))
+    return runbooks
+
+
+_METRICS_DOC_PATHS = ("docs/metrics.md",)
+
+
+def _merge_metrics_doc_from_repo(
+    repo: Path,
+    inventory: ObservabilityInventory,
+) -> None:
+    """Read docs/metrics.md from a cloned repo and merge entries."""
+    for subpath in _METRICS_DOC_PATHS:
+        md_file = repo / subpath
+        if not md_file.is_file():
+            continue
+        try:
+            content = md_file.read_text(
+                encoding="utf-8", errors="replace",
+            )
+        except OSError:
+            continue
+        entries = parse_metrics_doc(content)
+        if entries:
+            _merge_metrics_doc(inventory, entries)
+            logger.info(
+                "Merged %d entries from %s",
+                len(entries), subpath,
+            )
+
+
 def discover_observability(
     repo_path_or_url: str,
     branch: str = "",
@@ -806,30 +947,207 @@ def discover_observability(
             p.repo = repo_short
         inventory.panels.extend(go_panels)
 
+    inventory.runbooks.extend(
+        _scan_runbooks(repo, repo_short),
+    )
+
+    _merge_metrics_doc_from_repo(repo, inventory)
+
     return inventory
 
 
 # ---------------------------------------------------------------------------
-# Multi-repo aggregation with session cache
+# Multi-repo aggregation with session + filesystem cache
 # ---------------------------------------------------------------------------
 
 _inventory_cache: dict[str, ObservabilityInventory] = {}
+
+_FS_CACHE_DIR = os.path.join(
+    os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+    "cnv-epic-agent", "inventory",
+)
+_DEFAULT_CACHE_TTL_S = 3600  # 1 hour
+
+
+def _fs_cache_path(repos: list[str], branch: str) -> str:
+    key = hashlib.sha256(
+        _json.dumps(sorted(repos) + [branch]).encode(),
+    ).hexdigest()[:16]
+    return os.path.join(_FS_CACHE_DIR, f"{key}.json")
+
+
+def _read_fs_cache(
+    path: str,
+    ttl: int = _DEFAULT_CACHE_TTL_S,
+) -> ObservabilityInventory | None:
+    try:
+        stat = os.stat(path)
+    except FileNotFoundError:
+        return None
+    if time.time() - stat.st_mtime > ttl:
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = _json.load(f)
+        return ObservabilityInventory.from_dict(data)
+    except Exception:
+        logger.debug(
+            "Corrupt inventory cache %s, rebuilding", path,
+            exc_info=True,
+        )
+        return None
+
+
+def _write_fs_cache(
+    path: str,
+    inv: ObservabilityInventory,
+) -> None:
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump(inv.to_dict(), f)
+    except OSError:
+        logger.debug(
+            "Failed to write inventory cache %s", path,
+            exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Official metrics.md reference
+# ---------------------------------------------------------------------------
+
+_METRICS_DOC_TABLE_RE = re.compile(
+    r'^\|\s*([^|]+?)\s*\|\s*`([^`]+)`\s*\|\s*'
+    r'(Metric|Recording rule)\s*\|\s*'
+    r'(Counter|Gauge|Histogram|Summary)\s*\|\s*'
+    r'(.*?)\s*\|$',
+)
+
+
+def parse_metrics_doc(content: str) -> list[dict[str, str]]:
+    """Parse the markdown table from the kubevirt/monitoring metrics.md.
+
+    Returns a list of dicts with keys: operator, name, kind
+    (``"metric"`` or ``"recording_rule"``), type, description.
+    """
+    entries: list[dict[str, str]] = []
+    for line in content.splitlines():
+        m = _METRICS_DOC_TABLE_RE.match(line)
+        if not m:
+            continue
+        kind_raw = m.group(3).strip().lower()
+        kind = (
+            "recording_rule" if "recording" in kind_raw
+            else "metric"
+        )
+        entries.append({
+            "operator": m.group(1).strip(),
+            "name": m.group(2).strip(),
+            "kind": kind,
+            "type": m.group(4).strip().lower(),
+            "description": m.group(5).strip(),
+        })
+    return entries
+
+
+def fetch_metrics_doc(
+    url: str,
+) -> list[dict[str, str]]:
+    """Fetch and parse the official metrics.md reference."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            content = resp.read().decode(
+                "utf-8", errors="replace",
+            )
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch metrics doc from %s: %s",
+            url, exc,
+        )
+        return []
+
+    return parse_metrics_doc(content)
+
+
+def _merge_metrics_doc(
+    merged: ObservabilityInventory,
+    entries: list[dict[str, str]],
+) -> None:
+    """Merge parsed metrics.md entries into the inventory.
+
+    Only adds entries whose names are not already present,
+    so source-code discoveries take precedence.
+    """
+    existing_metrics = {m.name for m in merged.metrics}
+    existing_rr = {r.name for r in merged.recording_rules}
+
+    for entry in entries:
+        name = entry["name"]
+        operator = entry["operator"]
+        desc = entry["description"]
+        mtype = entry["type"]
+
+        if entry["kind"] == "metric":
+            if name not in existing_metrics:
+                merged.metrics.append(MetricInfo(
+                    name=name,
+                    help=desc,
+                    metric_type=mtype,
+                    file="metrics.md",
+                    line=0,
+                    repo=operator,
+                ))
+                existing_metrics.add(name)
+        else:
+            if name not in existing_rr:
+                merged.recording_rules.append(
+                    RecordingRuleInfo(
+                        name=name,
+                        expr="",
+                        file="metrics.md",
+                        line=0,
+                        source_format="docs",
+                        repo=operator,
+                    ),
+                )
+                existing_rr.add(name)
 
 
 def build_all_inventories(
     cfg: dict[str, Any],
     branch: str = "",
+    *,
+    no_cache: bool = False,
 ) -> ObservabilityInventory:
     """Scan all configured repos and merge into a single inventory.
 
-    Results are cached by branch for the lifetime of the process so that
-    repeated tool calls within a session don't re-clone 8 repos.
+    Results are cached in-process (by branch) and on disk so that
+    repeated invocations don't re-clone repos unnecessarily.
+    Set ``no_cache=True`` to force a fresh scan.
     """
     cache_key = branch or "__default__"
-    if cache_key in _inventory_cache:
+
+    if not no_cache and cache_key in _inventory_cache:
         return _inventory_cache[cache_key]
 
     repos = cfg.get("discovery", {}).get("repos", [])
+    cache_ttl = int(
+        cfg.get("discovery", {}).get(
+            "cache_ttl_seconds", _DEFAULT_CACHE_TTL_S,
+        ),
+    )
+    fs_path = _fs_cache_path(repos, branch)
+
+    if not no_cache:
+        cached = _read_fs_cache(fs_path, ttl=cache_ttl)
+        if cached is not None:
+            logger.info("Using cached inventory from %s", fs_path)
+            _inventory_cache[cache_key] = cached
+            return cached
+
     merged = ObservabilityInventory(repo_path="all")
 
     for repo_url in repos:
@@ -839,12 +1157,14 @@ def build_all_inventories(
         merged.recording_rules.extend(inv.recording_rules)
         merged.dashboards.extend(inv.dashboards)
         merged.panels.extend(inv.panels)
+        merged.runbooks.extend(inv.runbooks)
 
     cmo_url = cfg.get("telemetry", {}).get("cmo_allowlist_url", "")
     if cmo_url:
         merged.telemetry_allowlist.extend(fetch_cmo_allowlist(cmo_url))
 
     _inventory_cache[cache_key] = merged
+    _write_fs_cache(fs_path, merged)
     return merged
 
 
@@ -899,10 +1219,20 @@ def find_unvisualized_metrics(inv: ObservabilityInventory) -> list[MetricInfo]:
     return [m for m in inv.metrics if m.name not in visualized]
 
 
-def invalidate_cache(branch: str = "") -> None:
-    """Clear the inventory cache (useful for tests or forced refresh)."""
+def invalidate_cache(
+    branch: str = "",
+    cfg: dict[str, Any] | None = None,
+) -> None:
+    """Clear both in-process and filesystem inventory caches."""
     key = branch or "__default__"
     _inventory_cache.pop(key, None)
+    if cfg is not None:
+        repos = cfg.get("discovery", {}).get("repos", [])
+        path = _fs_cache_path(repos, branch)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
 
 
 def format_inventory(inv: ObservabilityInventory) -> str:

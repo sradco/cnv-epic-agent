@@ -2,23 +2,23 @@
 
 import fnmatch
 import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.discovery.discover import (
     ObservabilityInventory,
+    RunbookInfo,
     TelemetryAllowlistEntry,
     _parse_cmo_telemetry_yaml,
     _repo_name,
     _scan_cmo_telemetry_configmap,
     _scan_perses_yaml,
+    _scan_runbooks,
     build_all_inventories,
     discover_observability,
     extract_metric_names_from_promql,
     find_unvisualized_metrics,
     format_inventory,
     invalidate_cache,
+    parse_metrics_doc,
     scan_go_file,
 )
 
@@ -234,6 +234,211 @@ class TestPersesYamlDashboard:
         )
         dashboards, panels = _scan_perses_yaml(fpath)
         assert len(dashboards) >= 1
+
+
+class TestRunbookScanning:
+    """Tests for alert runbook discovery."""
+
+    def test_finds_runbooks_in_fake_repo(self):
+        from pathlib import Path
+        runbooks = _scan_runbooks(Path(FAKE_REPO), "fake")
+        names = {rb.alert_name for rb in runbooks}
+        assert "KubeVirtVMIExcessiveMigrations" in names
+        assert "CDIOperatorDown" in names
+
+    def test_skips_non_md_files(self):
+        from pathlib import Path
+        runbooks = _scan_runbooks(Path(FAKE_REPO), "fake")
+        names = {rb.alert_name for rb in runbooks}
+        assert "OWNERS" not in names
+
+    def test_skips_lowercase_filenames(self):
+        from pathlib import Path
+        runbooks = _scan_runbooks(Path(FAKE_REPO), "fake")
+        for rb in runbooks:
+            assert rb.alert_name[0].isupper()
+
+    def test_sets_repo_short(self):
+        from pathlib import Path
+        runbooks = _scan_runbooks(Path(FAKE_REPO), "monitoring")
+        assert all(rb.repo == "monitoring" for rb in runbooks)
+
+    def test_discover_observability_includes_runbooks(self):
+        inv = discover_observability(FAKE_REPO)
+        names = {rb.alert_name for rb in inv.runbooks}
+        assert "KubeVirtVMIExcessiveMigrations" in names
+        assert "CDIOperatorDown" in names
+
+    def test_discover_merges_metrics_doc(self):
+        inv = discover_observability(FAKE_REPO)
+        names = {m.name for m in inv.metrics}
+        assert "kubevirt_vmi_cpu_usage_seconds_total" in names
+        rr_names = {r.name for r in inv.recording_rules}
+        assert "node:kubevirt_vmi_phase:sum" in rr_names
+
+    def test_inventory_roundtrip(self):
+        inv = ObservabilityInventory(
+            repo_path="test",
+            runbooks=[
+                RunbookInfo(
+                    alert_name="TestAlert",
+                    file="docs/runbooks/TestAlert.md",
+                    repo="monitoring",
+                ),
+            ],
+        )
+        d = inv.to_dict()
+        restored = ObservabilityInventory.from_dict(d)
+        assert len(restored.runbooks) == 1
+        assert restored.runbooks[0].alert_name == "TestAlert"
+
+
+class TestMetricsDocParser:
+    """Tests for parsing the kubevirt/monitoring metrics.md."""
+
+    SAMPLE_DOC = """\
+# KubeVirt components metrics
+
+| Operator Name | Name | Kind | Type | Description |
+|----------|------|------|------|-------------|
+| kubevirt | `kubevirt_vmi_info` | Metric | Gauge | Information about VirtualMachineInstances. |
+| kubevirt | `kubevirt_vmi_cpu_usage_seconds_total` | Metric | Counter | Total CPU time spent in all modes. |
+| containerized-data-importer | `kubevirt_cdi_import_progress_total` | Metric | Counter | The import progress in percentage |
+| kubevirt | `kubevirt_vmi_phase_count` | Recording rule | Gauge | [Deprecated] Replaced by node:kubevirt_vmi_phase:sum. |
+| kubevirt | `node:kubevirt_vmi_phase:sum` | Recording rule | Gauge | Sum of VMIs per phase and node. |
+"""
+
+    def test_parses_metrics(self):
+        entries = parse_metrics_doc(self.SAMPLE_DOC)
+        metrics = [e for e in entries if e["kind"] == "metric"]
+        assert len(metrics) == 3
+        names = {m["name"] for m in metrics}
+        assert "kubevirt_vmi_info" in names
+        assert "kubevirt_cdi_import_progress_total" in names
+
+    def test_parses_recording_rules(self):
+        entries = parse_metrics_doc(self.SAMPLE_DOC)
+        rrs = [e for e in entries if e["kind"] == "recording_rule"]
+        assert len(rrs) == 2
+        names = {r["name"] for r in rrs}
+        assert "kubevirt_vmi_phase_count" in names
+        assert "node:kubevirt_vmi_phase:sum" in names
+
+    def test_captures_operator_and_type(self):
+        entries = parse_metrics_doc(self.SAMPLE_DOC)
+        cdi = [e for e in entries if "cdi" in e["name"]][0]
+        assert cdi["operator"] == "containerized-data-importer"
+        assert cdi["type"] == "counter"
+
+    def test_captures_description(self):
+        entries = parse_metrics_doc(self.SAMPLE_DOC)
+        vmi_info = [
+            e for e in entries if e["name"] == "kubevirt_vmi_info"
+        ][0]
+        assert "VirtualMachineInstances" in vmi_info["description"]
+
+    def test_empty_input(self):
+        assert parse_metrics_doc("") == []
+
+    def test_no_table(self):
+        assert parse_metrics_doc("# Just a heading\n\nSome text.") == []
+
+
+class TestMergeMetricsDoc:
+    """Tests for merging metrics.md into the inventory."""
+
+    def test_adds_missing_metrics(self):
+        from agent.discovery.discover import (
+            MetricInfo, _merge_metrics_doc,
+        )
+        inv = ObservabilityInventory(
+            repo_path="test",
+            metrics=[
+                MetricInfo(
+                    name="kubevirt_vmi_info",
+                    help="VMI info from source",
+                    metric_type="gauge",
+                    file="metrics.go", line=10,
+                ),
+            ],
+        )
+        entries = [
+            {
+                "operator": "kubevirt",
+                "name": "kubevirt_vmi_info",
+                "kind": "metric",
+                "type": "gauge",
+                "description": "From docs",
+            },
+            {
+                "operator": "kubevirt",
+                "name": "kubevirt_vmi_cpu_usage_seconds_total",
+                "kind": "metric",
+                "type": "counter",
+                "description": "CPU usage total",
+            },
+        ]
+        _merge_metrics_doc(inv, entries)
+
+        names = [m.name for m in inv.metrics]
+        assert names.count("kubevirt_vmi_info") == 1
+        assert "kubevirt_vmi_cpu_usage_seconds_total" in names
+        cpu_metric = [
+            m for m in inv.metrics
+            if m.name == "kubevirt_vmi_cpu_usage_seconds_total"
+        ][0]
+        assert cpu_metric.help == "CPU usage total"
+        assert cpu_metric.file == "metrics.md"
+
+    def test_source_code_takes_precedence(self):
+        from agent.discovery.discover import (
+            MetricInfo, _merge_metrics_doc,
+        )
+        inv = ObservabilityInventory(
+            repo_path="test",
+            metrics=[
+                MetricInfo(
+                    name="kubevirt_vmi_info",
+                    help="From Go source",
+                    metric_type="gauge",
+                    file="metrics.go", line=10,
+                ),
+            ],
+        )
+        entries = [
+            {
+                "operator": "kubevirt",
+                "name": "kubevirt_vmi_info",
+                "kind": "metric",
+                "type": "gauge",
+                "description": "From docs",
+            },
+        ]
+        _merge_metrics_doc(inv, entries)
+
+        assert len(inv.metrics) == 1
+        assert inv.metrics[0].help == "From Go source"
+        assert inv.metrics[0].file == "metrics.go"
+
+    def test_adds_recording_rules(self):
+        from agent.discovery.discover import _merge_metrics_doc
+
+        inv = ObservabilityInventory(repo_path="test")
+        entries = [
+            {
+                "operator": "kubevirt",
+                "name": "node:kubevirt_vmi_phase:sum",
+                "kind": "recording_rule",
+                "type": "gauge",
+                "description": "Sum of VMIs",
+            },
+        ]
+        _merge_metrics_doc(inv, entries)
+
+        assert len(inv.recording_rules) == 1
+        rr = inv.recording_rules[0]
+        assert rr.name == "node:kubevirt_vmi_phase:sum"
+        assert rr.source_format == "docs"
 
 
 if __name__ == "__main__":

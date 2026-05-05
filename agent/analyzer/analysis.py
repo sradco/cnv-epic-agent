@@ -585,6 +585,88 @@ def _build_telemetry_rationale(
 
 
 # ---------------------------------------------------------------------------
+# Naming convention extraction
+# ---------------------------------------------------------------------------
+
+_MAX_NAMES_PER_PREFIX = 8
+_MAX_ALERT_NAMES = 15
+_MAX_RECORDING_RULE_NAMES = 10
+
+
+def _extract_naming_conventions(
+    inventory: Any,
+) -> dict[str, Any]:
+    """Build a compact naming reference from the full inventory.
+
+    Groups metric names by their component prefix (e.g. kubevirt_vmi,
+    kubevirt_cdi) and lists a representative sample for each.  Also
+    includes alert names and recording rule names so the LLM can see
+    the established CamelCase / snake_case patterns.
+    """
+    result: dict[str, Any] = {}
+
+    if inventory is None:
+        return result
+
+    if hasattr(inventory, "metrics") and inventory.metrics:
+        prefix_groups: dict[str, list[str]] = {}
+        for m in inventory.metrics:
+            parts = m.name.split("_")
+            if len(parts) >= 3:
+                prefix = "_".join(parts[:2])
+            else:
+                prefix = parts[0] if parts else m.name
+            prefix_groups.setdefault(prefix, [])
+            if m.name not in prefix_groups[prefix]:
+                prefix_groups[prefix].append(m.name)
+
+        capped: dict[str, list[str]] = {}
+        for pfx in sorted(prefix_groups):
+            names = prefix_groups[pfx]
+            capped[pfx] = names[:_MAX_NAMES_PER_PREFIX]
+            if len(names) > _MAX_NAMES_PER_PREFIX:
+                capped[pfx].append(
+                    f"(+{len(names) - _MAX_NAMES_PER_PREFIX} more)"
+                )
+        result["metrics_by_prefix"] = capped
+
+    if hasattr(inventory, "alerts") and inventory.alerts:
+        alert_names = sorted(
+            {a.name for a in inventory.alerts}
+        )
+        result["alert_names"] = (
+            alert_names[:_MAX_ALERT_NAMES]
+        )
+        if len(alert_names) > _MAX_ALERT_NAMES:
+            result["alert_names"].append(
+                f"(+{len(alert_names) - _MAX_ALERT_NAMES} more)"
+            )
+
+    if (
+        hasattr(inventory, "recording_rules")
+        and inventory.recording_rules
+    ):
+        rr_names = sorted(
+            {r.name for r in inventory.recording_rules}
+        )
+        result["recording_rule_names"] = (
+            rr_names[:_MAX_RECORDING_RULE_NAMES]
+        )
+        if len(rr_names) > _MAX_RECORDING_RULE_NAMES:
+            result["recording_rule_names"].append(
+                f"(+{len(rr_names) - _MAX_RECORDING_RULE_NAMES}"
+                f" more)"
+            )
+
+    if hasattr(inventory, "runbooks") and inventory.runbooks:
+        result["alerts_with_runbooks"] = sorted(
+            {rb.alert_name for rb in inventory.runbooks}
+        )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Full Analysis Pipeline
 # ---------------------------------------------------------------------------
 
@@ -676,6 +758,8 @@ def build_analysis_result(
 
     epic_components = epic.components or []
 
+    naming_conventions = _extract_naming_conventions(inventory)
+
     return {
         "epic_key": epic.key,
         "epic_summary": epic.summary,
@@ -695,6 +779,7 @@ def build_analysis_result(
         "gaps": missing,
         "feature_types": feature_types,
         "proposals": proposals,
+        "naming_conventions": naming_conventions,
         "dashboard_targets": dashboard_target_list,
         "telemetry_suggestions": telemetry_suggestions,
         "recommended_action": recommended_action,

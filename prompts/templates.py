@@ -14,6 +14,7 @@ from schemas.stories import SP_ESTIMATION_JSON_SCHEMA, STORY_JSON_SCHEMA
 
 _PROPOSALS_MAX_CHARS = 4000
 _TELEMETRY_MAX_CHARS = 2000
+_NAMING_MAX_CHARS = 3000
 _MAX_EXISTING_ITEMS_PER_CATEGORY = 5
 
 
@@ -191,7 +192,14 @@ planning, health assessment, or operator decision-making.
 operator decision). This detail is required only for \
 observability stories — not for QE or docs.
 - Use kubevirt_<component>_<noun>_<unit> naming, CamelCase \
-alert names.
+alert names. Before inventing a new name, consult the \
+"Naming conventions" section in the prompt — it lists all \
+existing metric, alert, and recording rule names grouped by \
+prefix. Your proposed names MUST follow the same prefix, \
+suffix, and structural patterns visible there. For example, \
+if existing metrics use `kubevirt_cdi_<noun>_status` to \
+report success/failure, do NOT invent a different suffix \
+like `_operations_total`.
 - Metric and alert names MUST be version-agnostic. Never embed \
 a platform version (OCP 4.x/5.x), CNV version, or RHCOS \
 version in a metric or alert name.
@@ -238,6 +246,17 @@ APIServer, Infrastructure, or Network), do NOT propose alerts \
 or metrics for unexpected values in that external resource — \
 that is the responsibility of the platform operator, not \
 KubeVirt/CNV.
+- Be careful when proposing metrics for **configuration or \
+inventory state** (e.g. number of custom alerts, number of \
+configured rules). A low-cardinality aggregate gauge (e.g. \
+total count of managed alerts cluster-wide) can be justified \
+when the data needs to be visible in multi-cluster monitoring \
+(ACM/Thanos/RHOBS) or used as an alert condition. However, \
+do NOT create **per-object series** with high-cardinality \
+labels like `alertname` or `rulename` that mirror an API list \
+— those waste cardinality and duplicate what the API already \
+provides. Prefer a single aggregate gauge over N per-item \
+time series.
 - Before proposing new metrics, use your knowledge of well-known \
 Kubernetes ecosystem metrics: controller-runtime \
 (controller_runtime_reconcile_*, \
@@ -280,6 +299,15 @@ Wrong — that metric is a counter tracking import progress \
 as a percentage, not a success/failure count. Its type and \
 semantics do not support error-rate computation.
 
+BAD: Epic adds alert management UI. Proposed per-alert \
+gauges `kubevirt_alert_management_custom_alerts_total` with \
+labels `namespace`, `alertname` — one time series per \
+managed alert. Wrong — this creates high-cardinality series \
+that mirror the API's list output. A single aggregate gauge \
+(e.g. `kubevirt_alert_management_managed_count`) without \
+per-object labels would be acceptable for multi-cluster \
+visibility.
+
 GOOD: Epic adds GPU passthrough. No existing GPU metrics \
 in inventory. Proposed `kubevirt_vmi_gpu_allocated` gauge \
 and `KubeVirtVMIGPUAllocationFailed` alert. Correct — \
@@ -299,6 +327,12 @@ listing the old and new name.
 runbooks. Propose one docs story per version in the metrics \
 backlog epic to cover runbook review for all alerts in that \
 version. Do NOT create a separate docs story per alert.
+- The "Naming conventions" section lists all alerts that \
+already have runbooks (under `alerts_with_runbooks`). \
+Only propose runbook docs work for **new** alerts that \
+are NOT in that list. If the alert already has a runbook, \
+the docs team only needs to review it if the alert \
+expression or semantics changed — not for every run.
 - Description format: a short plain-text paragraph describing \
 what needs to be documented, followed by an acceptance \
 criteria checklist. Nothing else. Do NOT add sections like \
@@ -423,6 +457,26 @@ def build_story_composition_prompt(
         parts.append("```json")
         parts.append(_capped_json(
             trimmed, _PROPOSALS_MAX_CHARS, label="proposals",
+        ))
+        parts.append("```")
+        parts.append("")
+
+    naming = analysis.get("naming_conventions", {})
+    if naming:
+        parts.append(
+            "## Naming conventions (from existing inventory)"
+        )
+        parts.append(
+            "Any new metric, alert, or recording rule name "
+            "you propose MUST follow these established "
+            "patterns. Study the prefixes, suffixes, and "
+            "structure below."
+        )
+        parts.append("")
+        parts.append("```json")
+        parts.append(_capped_json(
+            naming, _NAMING_MAX_CHARS,
+            label="naming entries",
         ))
         parts.append("```")
         parts.append("")

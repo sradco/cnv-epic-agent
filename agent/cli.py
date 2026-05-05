@@ -30,12 +30,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sys
 from datetime import datetime, timezone
-
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
 
 
 def main() -> None:
@@ -122,6 +117,20 @@ def main() -> None:
         help="Use template-based stories instead of LLM",
     )
     parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        default=False,
+        help="Force fresh inventory scan (skip filesystem cache)",
+    )
+    parser.add_argument(
+        "--config", "-c",
+        default=None,
+        help=(
+            "Path to config.yaml "
+            "(default: config.yaml in project root)"
+        ),
+    )
+    parser.add_argument(
         "--output", "-o",
         default=None,
         help="Write report to a file (in addition to stdout)",
@@ -162,6 +171,8 @@ def main() -> None:
         model=args.model,
         use_llm=not args.no_llm,
         categories=categories,
+        config_path=args.config,
+        no_cache=args.no_cache,
     )
 
     print(report)

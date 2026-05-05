@@ -1,13 +1,9 @@
 """Integration-style tests for agent.runner with mocked Jira and LLM."""
 
 import json
-import os
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agent.planner.llm import LLMError
 
@@ -30,7 +26,8 @@ def _fake_jira_issue(
 
 
 def _minimal_cfg():
-    return {
+    from schemas.config import AppConfig
+    return AppConfig.from_dict({
         "jira": {
             "url": "https://example.atlassian.net",
             "default_project": "CNV",
@@ -50,7 +47,7 @@ def _minimal_cfg():
             "epic_label": "cnv-observability",
         },
         "repos": {},
-    }
+    })
 
 
 class TestRunnerDryRun:
@@ -145,8 +142,10 @@ class TestRunnerDryRun:
         assert "## Summary" in report
         assert "Epics processed | 1" in report
         assert "Stories would create | 1" in report
-        assert "| Epic | metrics | Total |" in report
-        assert "| CNV-100 | 1 | 1 |" in report
+        assert "| Epic | metrics | Total | Status |" in report
+        assert (
+            "| CNV-100 | 1 | 1 | groomed |" in report
+        )
 
     @patch("agent.runner._load_config")
     @patch("agent.runner.get_jira_client")
@@ -537,11 +536,15 @@ class TestLabelBasedCategoryFiltering:
         from agent.runner import run
         from schemas.stories import StoryPayload
 
-        cfg = _minimal_cfg()
-        cfg["agent"]["enabled_categories"] = [
-            "metrics", "docs", "qe",
-        ]
-        mock_config.return_value = cfg
+        from schemas.config import AppConfig
+        cfg_dict = {
+            **_minimal_cfg().raw,
+            "agent": {
+                **_minimal_cfg().raw.get("agent", {}),
+                "enabled_categories": ["metrics", "docs", "qe"],
+            },
+        }
+        mock_config.return_value = AppConfig.from_dict(cfg_dict)
         mock_jira.return_value = MagicMock()
 
         _LONG_DESC = (
@@ -616,21 +619,23 @@ class TestGroomingDetection:
     @patch("agent.runner.get_jira_client")
     @patch("agent.runner.search_epics")
     @patch("agent.runner.fetch_epic_with_children")
-    @patch("agent.runner._validate_config")
-    @patch("agent.runner.yaml")
+    @patch("agent.runner._load_config")
     def test_dry_run_reports_needs_grooming(
-        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        self, mock_config, mock_fetch, mock_search,
         mock_client, mock_inv, mock_days,
     ):
         from agent.runner import run
+        from schemas.config import AppConfig
 
-        cfg = _minimal_cfg()
-        cfg["grooming"] = {
-            "label": "grooming",
-            "min_description_length": 50,
-            "min_children": 1,
+        cfg_dict = {
+            **_minimal_cfg().raw,
+            "grooming": {
+                "label": "grooming",
+                "min_description_length": 50,
+                "min_children": 1,
+            },
         }
-        mock_yaml.safe_load.return_value = cfg
+        mock_config.return_value = AppConfig.from_dict(cfg_dict)
 
         epic_issue = _fake_jira_issue(
             "CNV-300", "Sparse epic", description="Short",
@@ -663,22 +668,24 @@ class TestGroomingDetection:
     @patch("agent.runner.get_jira_client")
     @patch("agent.runner.search_epics")
     @patch("agent.runner.fetch_epic_with_children")
-    @patch("agent.runner._validate_config")
-    @patch("agent.runner.yaml")
+    @patch("agent.runner._load_config")
     def test_grooming_comment_throttled_when_recent(
-        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        self, mock_config, mock_fetch, mock_search,
         mock_client, mock_inv, mock_days,
     ):
         from agent.runner import run
+        from schemas.config import AppConfig
 
-        cfg = _minimal_cfg()
-        cfg["grooming"] = {
-            "label": "grooming",
-            "min_description_length": 50,
-            "min_children": 1,
-            "comment_cooldown_days": 7,
+        cfg_dict = {
+            **_minimal_cfg().raw,
+            "grooming": {
+                "label": "grooming",
+                "min_description_length": 50,
+                "min_children": 1,
+                "comment_cooldown_days": 7,
+            },
         }
-        mock_yaml.safe_load.return_value = cfg
+        mock_config.return_value = AppConfig.from_dict(cfg_dict)
 
         epic_issue = _fake_jira_issue(
             "CNV-350", "Sparse epic", description="Short",
@@ -707,21 +714,23 @@ class TestGroomingDetection:
     @patch("agent.runner.get_jira_client")
     @patch("agent.runner.search_epics")
     @patch("agent.runner.fetch_epic_with_children")
-    @patch("agent.runner._validate_config")
-    @patch("agent.runner.yaml")
+    @patch("agent.runner._load_config")
     def test_detailed_epic_not_flagged(
-        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        self, mock_config, mock_fetch, mock_search,
         mock_client, mock_inv,
     ):
         from agent.runner import run
+        from schemas.config import AppConfig
 
-        cfg = _minimal_cfg()
-        cfg["grooming"] = {
-            "label": "grooming",
-            "min_description_length": 50,
-            "min_children": 1,
+        cfg_dict = {
+            **_minimal_cfg().raw,
+            "grooming": {
+                "label": "grooming",
+                "min_description_length": 50,
+                "min_children": 1,
+            },
         }
-        mock_yaml.safe_load.return_value = cfg
+        mock_config.return_value = AppConfig.from_dict(cfg_dict)
 
         detailed_desc = (
             "This epic covers moving all metrics from kubevirt "
@@ -759,22 +768,24 @@ class TestLLMClarityCheck:
     @patch("agent.runner.get_jira_client")
     @patch("agent.runner.search_epics")
     @patch("agent.runner.fetch_epic_with_children")
-    @patch("agent.runner._validate_config")
-    @patch("agent.runner.yaml")
+    @patch("agent.runner._load_config")
     def test_llm_flags_vague_epic(
-        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        self, mock_config, mock_fetch, mock_search,
         mock_client, mock_inv, mock_clarity, mock_days,
     ):
         from agent.runner import run
+        from schemas.config import AppConfig
 
-        cfg = _minimal_cfg()
-        cfg["grooming"] = {
-            "label": "grooming",
-            "min_description_length": 50,
-            "min_children": 1,
-            "llm_clarity_check": True,
+        cfg_dict = {
+            **_minimal_cfg().raw,
+            "grooming": {
+                "label": "grooming",
+                "min_description_length": 50,
+                "min_children": 1,
+                "llm_clarity_check": True,
+            },
         }
-        mock_yaml.safe_load.return_value = cfg
+        mock_config.return_value = AppConfig.from_dict(cfg_dict)
 
         _LONG_DESC = (
             "Improve the observability of the system by adding "
@@ -819,23 +830,25 @@ class TestLLMClarityCheck:
     @patch("agent.runner.search_epics")
     @patch("agent.runner.fetch_epic_with_children")
     @patch("agent.runner.build_analysis_result")
-    @patch("agent.runner._validate_config")
-    @patch("agent.runner.yaml")
+    @patch("agent.runner._load_config")
     def test_llm_passes_clear_epic(
-        self, mock_yaml, mock_validate, mock_analysis,
+        self, mock_config, mock_analysis,
         mock_fetch, mock_search, mock_client, mock_inv,
         mock_clarity, mock_compose,
     ):
         from agent.runner import run
+        from schemas.config import AppConfig
 
-        cfg = _minimal_cfg()
-        cfg["grooming"] = {
-            "label": "grooming",
-            "min_description_length": 50,
-            "min_children": 1,
-            "llm_clarity_check": True,
+        cfg_dict = {
+            **_minimal_cfg().raw,
+            "grooming": {
+                "label": "grooming",
+                "min_description_length": 50,
+                "min_children": 1,
+                "llm_clarity_check": True,
+            },
         }
-        mock_yaml.safe_load.return_value = cfg
+        mock_config.return_value = AppConfig.from_dict(cfg_dict)
 
         _LONG_DESC = (
             "Separate KubeVirt observability components into the "
@@ -899,23 +912,25 @@ class TestLLMClarityCheck:
     @patch("agent.runner.search_epics")
     @patch("agent.runner.fetch_epic_with_children")
     @patch("agent.runner.build_analysis_result")
-    @patch("agent.runner._validate_config")
-    @patch("agent.runner.yaml")
+    @patch("agent.runner._load_config")
     def test_llm_check_skipped_when_disabled(
-        self, mock_yaml, mock_validate, mock_analysis,
+        self, mock_config, mock_analysis,
         mock_fetch, mock_search, mock_client, mock_inv,
         mock_compose,
     ):
         from agent.runner import run
+        from schemas.config import AppConfig
 
-        cfg = _minimal_cfg()
-        cfg["grooming"] = {
-            "label": "grooming",
-            "min_description_length": 50,
-            "min_children": 1,
-            "llm_clarity_check": False,
+        cfg_dict = {
+            **_minimal_cfg().raw,
+            "grooming": {
+                "label": "grooming",
+                "min_description_length": 50,
+                "min_children": 1,
+                "llm_clarity_check": False,
+            },
         }
-        mock_yaml.safe_load.return_value = cfg
+        mock_config.return_value = AppConfig.from_dict(cfg_dict)
 
         _LONG_DESC = (
             "Vague epic but clarity check disabled so it should "
@@ -977,6 +992,37 @@ class TestRunnerConfigValidation:
                 },
             })
 
+    def test_invalid_category_raises(self):
+        from agent.runner import _validate_config
 
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-v"]))
+        cfg = {
+            "agent": {
+                "enabled_categories": ["metrics", "invalid_cat"],
+            },
+        }
+        with pytest.raises(ValueError, match="Unknown category"):
+            _validate_config(cfg)
+
+    def test_valid_config_passes(self):
+        from agent.runner import _validate_config
+
+        cfg = {
+            "agent": {
+                "enabled_categories": ["metrics", "alerts", "docs"],
+                "temperature": 0.3,
+                "story_points": {"enabled": True},
+            },
+            "creation": {"project": "CNV"},
+        }
+        _validate_config(cfg)
+
+    def test_invalid_temperature_raises(self):
+        from agent.runner import _validate_config
+
+        cfg = {
+            "agent": {
+                "temperature": "not-a-number",
+            },
+        }
+        with pytest.raises(ValueError, match="temperature"):
+            _validate_config(cfg)
