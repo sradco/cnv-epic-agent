@@ -46,6 +46,17 @@ logger = logging.getLogger(__name__)
 STATUS_GROOMED = "groomed"
 STATUS_NEEDS_GROOMING = "needs grooming"
 STATUS_NOTHING_TO_DO = "nothing to do"
+STATUS_ERROR = "error"
+STATUS_LLM_ERROR = "llm error"
+
+_STATUS_ORDER = {
+    STATUS_ERROR: 0,
+    STATUS_LLM_ERROR: 1,
+    STATUS_NEEDS_GROOMING: 2,
+    STATUS_NOTHING_TO_DO: 3,
+    STATUS_GROOMED: 4,
+    "": 5,
+}
 
 _DEFAULT_CONFIG_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -105,6 +116,7 @@ class _RunCounters:
         self.llm_errors = 0
         self.sp_updated = 0
         self.sp_skipped = 0
+        self.sp_failed = 0
         self.needs_grooming = 0
         self.by_category: dict[str, int] = {}
         self.epic_tallies: list[_EpicTally] = []
@@ -343,11 +355,24 @@ def _estimate_existing_sp(
     if not sp_estimates:
         return lines
 
+    valid_keys = {d["key"] for d in unsized_data}
+
     lines.append(
         f"### Story point estimates "
         f"({len(sp_estimates)} unsized stories)"
     )
     for iss_key, sp_val in sp_estimates.items():
+        if iss_key not in valid_keys:
+            logger.warning(
+                "[%s] SP estimation returned unknown key %s "
+                "(not in unsized set), skipping",
+                ctx.run_id, iss_key,
+            )
+            lines.append(
+                f"- SP SKIP {iss_key}: "
+                f"not in unsized set (LLM hallucination?)"
+            )
+            continue
         if ctx.apply:
             try:
                 updated = update_story_points(
@@ -363,6 +388,7 @@ def _estimate_existing_sp(
                         f"- SP SKIP {iss_key}: already set"
                     )
             except Exception:
+                ctx.counters.sp_failed += 1
                 logger.error(
                     "[%s] Failed to update SP for %s",
                     ctx.run_id, iss_key, exc_info=True,
@@ -392,6 +418,7 @@ def _resolve_epics(
     """Resolve which epics to process from CLI args."""
     if epic_keys:
         epics: list[Any] = []
+        failed_keys: list[str] = []
         for key in epic_keys:
             try:
                 epics.append(client.issue(key))
@@ -400,6 +427,13 @@ def _resolve_epics(
                     "[%s] Failed to fetch epic %s",
                     run_id, key, exc_info=True,
                 )
+                failed_keys.append(key)
+        if failed_keys:
+            logger.warning(
+                "[%s] Could not fetch %d epic(s): %s",
+                run_id, len(failed_keys),
+                ", ".join(failed_keys),
+            )
         return epics
 
     if jql:
@@ -480,6 +514,7 @@ def _handle_grooming(
 ) -> list[str]:
     """Handle a grooming-flagged epic: add labels/comments."""
     lines: list[str] = []
+    epic_link = _jira_link(epic_key, ctx.cfg)
     grooming_label = app_cfg.grooming.label
     ctx.counters.needs_grooming += 1
     ctx.counters.record_epic_status(
@@ -487,7 +522,7 @@ def _handle_grooming(
     )
     lines.append(f'<a id="{_epic_anchor(epic_key)}"></a>')
     lines.append(
-        f"## {epic_key} — {epic_summary} — NEEDS GROOMING"
+        f"## {epic_link} — {epic_summary} — NEEDS GROOMING"
     )
     lines.append(grooming_reason)
 
@@ -574,9 +609,13 @@ def _process_epic(
             "[%s] Failed to fetch %s",
             run_id, epic_key, exc_info=True,
         )
+        ctx.counters.record_epic_status(
+            epic_key, STATUS_ERROR,
+        )
+        epic_link = _jira_link(epic_key, cfg)
         return [
             f'<a id="{_epic_anchor(epic_key)}"></a>',
-            f"## {epic_key} — ERROR (fetch failed)",
+            f"## {epic_link} — ERROR (fetch failed)",
             "",
         ]
 
@@ -595,8 +634,9 @@ def _process_epic(
     )
 
     epic_header: list[str] = []
+    epic_link = _jira_link(epic_key, cfg)
     epic_header.append(f'<a id="{_epic_anchor(epic_key)}"></a>')
-    epic_header.append(f"## {epic_key} — {epic.summary}")
+    epic_header.append(f"## {epic_link} — {epic.summary}")
     epic_components = result.get("epic_components", [])
     if epic_components:
         epic_header.append(
@@ -630,6 +670,9 @@ def _process_epic(
             )
         except LLMError as exc:
             ctx.counters.llm_errors += 1
+            ctx.counters.record_epic_status(
+                epic_key, STATUS_LLM_ERROR,
+            )
             logger.error(
                 "[%s] LLM failed for %s: %s",
                 run_id, epic_key, exc,
@@ -637,6 +680,9 @@ def _process_epic(
             return epic_header + [f"- **LLM ERROR**: {exc}", ""]
         except Exception as exc:
             ctx.counters.llm_errors += 1
+            ctx.counters.record_epic_status(
+                epic_key, STATUS_ERROR,
+            )
             logger.error(
                 "[%s] Story composition failed for %s: %s",
                 run_id, epic_key, exc, exc_info=True,
@@ -668,12 +714,26 @@ def _process_epic(
         ]
 
     if ctx.version:
-        obs_epic = find_or_create_obs_epic(
-            client, cfg, ctx.version, dry_run=not ctx.apply,
-        )
-        existing = find_existing_obs_stories(
-            client, cfg, obs_epic["key"], epic_key,
-        )
+        try:
+            obs_epic = find_or_create_obs_epic(
+                client, cfg, ctx.version, dry_run=not ctx.apply,
+            )
+            existing = find_existing_obs_stories(
+                client, cfg, obs_epic["key"], epic_key,
+            )
+        except Exception:
+            logger.error(
+                "[%s] Failed obs epic / dedup lookup for %s",
+                run_id, epic_key, exc_info=True,
+            )
+            ctx.counters.record_epic_status(
+                epic_key, STATUS_ERROR,
+            )
+            return epic_header + [
+                "- **ERROR**: Failed to resolve "
+                "observability epic or existing stories.",
+                "",
+            ]
     else:
         obs_epic = {"key": "(no version)", "summary": ""}
         existing = []
@@ -682,11 +742,18 @@ def _process_epic(
 
     domain_keywords = result.get("domain_keywords", [])
     if domain_keywords:
-        existing.extend(
-            find_broad_matching_stories(
-                client, cfg, epic_key, domain_keywords,
+        try:
+            existing.extend(
+                find_broad_matching_stories(
+                    client, cfg, epic_key, domain_keywords,
+                )
             )
-        )
+        except Exception:
+            logger.warning(
+                "[%s] Broad keyword search failed for %s, "
+                "continuing without it",
+                run_id, epic_key, exc_info=True,
+            )
 
     story_lines = _dedup_and_create(
         stories, epic_key, obs_epic, existing, ctx,
@@ -709,6 +776,14 @@ def _epic_anchor(epic_key: str) -> str:
     return epic_key.lower()
 
 
+def _jira_link(epic_key: str, cfg: dict[str, Any]) -> str:
+    """Return a markdown link to the epic in Jira."""
+    base = cfg.get("jira", {}).get("url", "").rstrip("/")
+    if base:
+        return f"[{epic_key}]({base}/browse/{epic_key})"
+    return epic_key
+
+
 def _build_report_summary(
     counters: _RunCounters,
     processed: int,
@@ -725,16 +800,10 @@ def _build_report_summary(
 
     all_cats = sorted(counters.by_category)
     if counters.epic_tallies:
-        _STATUS_ORDER = {
-            STATUS_NEEDS_GROOMING: 0,
-            STATUS_NOTHING_TO_DO: 1,
-            STATUS_GROOMED: 2,
-            "": 3,
-        }
         sorted_tallies = sorted(
             counters.epic_tallies,
             key=lambda t: (
-                _STATUS_ORDER.get(t.status, 3), t.key,
+                _STATUS_ORDER.get(t.status, 5), t.key,
             ),
         )
 
@@ -822,6 +891,11 @@ def _build_report_summary(
             f"| Story points skipped | "
             f"{counters.sp_skipped} |"
         )
+    if counters.sp_failed:
+        lines.append(
+            f"| Story points failed | "
+            f"{counters.sp_failed} |"
+        )
     lines.append("")
 
     return lines
@@ -878,6 +952,14 @@ def run(
 
     max_stories = app_cfg.agent.max_stories_per_run
 
+    if categories:
+        from schemas.stories import VALID_CATEGORIES
+        for cat in categories:
+            if cat not in VALID_CATEGORIES:
+                raise ConfigError(
+                    f"Unknown category {cat!r}. "
+                    f"Valid: {sorted(VALID_CATEGORIES)}"
+                )
     enabled_categories: list[str] = (
         categories or app_cfg.agent.enabled_categories
     )

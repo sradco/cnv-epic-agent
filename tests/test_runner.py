@@ -1,6 +1,5 @@
 """Integration-style tests for agent.runner with mocked Jira and LLM."""
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1029,3 +1028,176 @@ class TestRunnerConfigValidation:
         }
         with pytest.raises(ValueError, match="temperature"):
             _validate_config(cfg)
+
+    def test_apply_without_version_raises(self):
+        from agent.runner import ConfigError, run
+
+        with patch("agent.runner._load_config") as m:
+            m.return_value = _minimal_cfg()
+            with pytest.raises(ConfigError, match="version"):
+                run(
+                    epic_keys=["CNV-1"],
+                    apply=True,
+                    version="",
+                )
+
+    def test_invalid_cli_category_raises(self):
+        from agent.runner import ConfigError, run
+
+        with patch("agent.runner._load_config") as m:
+            m.return_value = _minimal_cfg()
+            with pytest.raises(ConfigError, match="invalid_cat"):
+                run(
+                    epic_keys=["CNV-1"],
+                    categories=["metrics", "invalid_cat"],
+                )
+
+    def test_llm_error_epic_appears_in_summary_table(self):
+        from agent.runner import run
+        from schemas.issue_doc import IssueDoc
+
+        with (
+            patch("agent.runner._load_config") as mock_config,
+            patch("agent.runner.get_jira_client") as mock_jira,
+            patch("agent.runner.build_all_inventories",
+                  return_value={}),
+            patch("agent.runner.fetch_epic_with_children")
+                as mock_fetch,
+            patch("agent.runner.build_analysis_result")
+                as mock_analysis,
+            patch("agent.runner.compose_stories") as mock_compose,
+        ):
+            _LONG = "Enough detail " * 10
+            mock_config.return_value = _minimal_cfg()
+            mock_jira.return_value = MagicMock()
+            mock_jira.return_value.issue.return_value = (
+                _fake_jira_issue(
+                    "CNV-700", "Fail Epic", description=_LONG,
+                )
+            )
+            mock_fetch.return_value = (
+                IssueDoc(
+                    key="CNV-700", summary="Fail Epic",
+                    description=_LONG,
+                ),
+                [],
+            )
+            mock_analysis.return_value = {
+                "epic_key": "CNV-700",
+                "epic_summary": "Fail Epic",
+                "epic_description": _LONG,
+                "child_issues": [],
+                "domain_keywords": [],
+                "need_state": "needed",
+                "need_confidence": "high",
+                "gaps": ["metrics"],
+                "feature_types": [],
+                "proposals": {},
+                "dashboard_targets": [],
+                "telemetry_suggestions": [],
+                "recommended_action": "create now",
+                "would_create_count": 1,
+            }
+            mock_compose.side_effect = LLMError("model error")
+
+            report = run(
+                epic_keys=["CNV-700"],
+                apply=False,
+                use_llm=True,
+            )
+
+        assert "CNV-700" in report
+        assert "llm error" in report
+
+
+class TestConfigParsing:
+    def test_parse_int_invalid_raises(self):
+        from schemas.config import AppConfig, ConfigError
+
+        with pytest.raises(ConfigError, match="integer"):
+            AppConfig.from_dict({
+                "grooming": {"comment_cooldown_days": "abc"},
+            })
+
+    def test_parse_category_list_string(self):
+        from schemas.config import AppConfig
+
+        cfg = AppConfig.from_dict({
+            "agent": {"enabled_categories": "metrics,docs"},
+        })
+        assert cfg.agent.enabled_categories == [
+            "metrics", "docs",
+        ]
+
+    def test_repos_scalar_string(self):
+        from schemas.config import AppConfig
+
+        cfg = AppConfig.from_dict({
+            "discovery": {
+                "repos": "https://github.com/a/b",
+            },
+        })
+        assert cfg.discovery.repos == [
+            "https://github.com/a/b",
+        ]
+
+    def test_category_guidance_non_dict_raises(self):
+        from schemas.config import AppConfig, ConfigError
+
+        with pytest.raises(ConfigError, match="mapping"):
+            AppConfig.from_dict({
+                "agent": {"category_guidance": "bad"},
+            })
+
+    def test_negative_min_children_raises(self):
+        from schemas.config import AppConfig, ConfigError
+
+        with pytest.raises(
+            ConfigError, match="min_children",
+        ):
+            AppConfig.from_dict({
+                "grooming": {"min_children": -1},
+            })
+
+    def test_temperature_out_of_range_raises(self):
+        from schemas.config import AppConfig, ConfigError
+
+        with pytest.raises(ConfigError, match="temperature"):
+            AppConfig.from_dict({
+                "agent": {"temperature": 3.0},
+            })
+
+
+class TestIssueDocDict:
+    def test_from_jira_dict_payload(self):
+        from schemas.issue_doc import IssueDoc
+
+        raw = {
+            "key": "CNV-42",
+            "fields": {
+                "summary": "Test summary",
+                "description": "Test desc",
+                "issuetype": {"name": "Story"},
+                "labels": ["label-a"],
+                "components": [{"name": "Comp1"}],
+            },
+        }
+        doc = IssueDoc.from_jira(raw)
+        assert doc.key == "CNV-42"
+        assert doc.summary == "Test summary"
+        assert doc.description == "Test desc"
+        assert doc.issue_type == "Story"
+        assert doc.labels == ["label-a"]
+        assert doc.components == ["Comp1"]
+
+    def test_from_jira_dict_flat(self):
+        from schemas.issue_doc import IssueDoc
+
+        raw = {
+            "key": "CNV-99",
+            "summary": "Flat",
+            "description": "Flat desc",
+        }
+        doc = IssueDoc.from_jira(raw)
+        assert doc.key == "CNV-99"
+        assert doc.summary == "Flat"

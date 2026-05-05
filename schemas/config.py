@@ -113,6 +113,21 @@ class AppConfig:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _parse_str_list(
+        val: Any, field_name: str,
+    ) -> list[str]:
+        """Coerce a YAML value into a list of strings safely."""
+        if isinstance(val, str):
+            return [v.strip() for v in val.split(",") if v.strip()]
+        if isinstance(val, list):
+            return [str(v) for v in val]
+        raise ConfigError(
+            f"{field_name} must be a list or "
+            f"comma-separated string, "
+            f"got {type(val).__name__}"
+        )
+
+    @staticmethod
     def _parse_category_list(val: Any) -> list[str]:
         """Coerce enabled_categories safely.
 
@@ -127,6 +142,18 @@ class AppConfig:
         raise ConfigError(
             f"enabled_categories must be a list or "
             f"comma-separated string, got {type(val).__name__}"
+        )
+
+    @staticmethod
+    def _parse_dict(
+        val: Any, field_name: str,
+    ) -> dict[str, Any]:
+        """Ensure a value is a dict; raise ConfigError otherwise."""
+        if isinstance(val, dict):
+            return dict(val)
+        raise ConfigError(
+            f"{field_name} must be a mapping, "
+            f"got {type(val).__name__}"
         )
 
     @staticmethod
@@ -257,8 +284,9 @@ class AppConfig:
                         "telemetry", "docs", "qe",
                     ]),
                 ),
-                category_guidance=dict(
+                category_guidance=cls._parse_dict(
                     a.get("category_guidance", {}),
+                    "agent.category_guidance",
                 ),
                 story_points=StoryPointsConfig(
                     enabled=bool(sp.get("enabled", False)),
@@ -269,7 +297,10 @@ class AppConfig:
                 ),
             ),
             discovery=DiscoveryConfig(
-                repos=list(disc.get("repos", [])),
+                repos=cls._parse_str_list(
+                    disc.get("repos", []),
+                    "discovery.repos",
+                ),
                 cache_ttl_seconds=cls._parse_int(
                     disc.get("cache_ttl_seconds", 3600),
                     "discovery.cache_ttl_seconds",
@@ -312,11 +343,6 @@ class AppConfig:
                     f"Valid: {sorted(VALID_CATEGORIES)}"
                 )
 
-        if not isinstance(self.agent.temperature, (int, float)):
-            raise ConfigError(
-                f"temperature must be a number, "
-                f"got {type(self.agent.temperature).__name__}"
-            )
         if not 0.0 <= self.agent.temperature <= 2.0:
             raise ConfigError(
                 f"temperature must be between 0.0 and 2.0, "

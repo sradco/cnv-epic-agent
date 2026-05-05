@@ -61,8 +61,8 @@ class IssueDoc:
             issue_type=issue_type_name,
             labels=list(raw_labels),
             components=[
-                str(getattr(c, "name", c))
-                if not isinstance(c, str) else c
+                (c.get("name", str(c)) if isinstance(c, dict)
+                 else str(getattr(c, "name", c)))
                 for c in raw_components
             ],
         )

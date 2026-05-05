@@ -969,11 +969,17 @@ _FS_CACHE_DIR = os.path.join(
 _DEFAULT_CACHE_TTL_S = 3600  # 1 hour
 
 
-def _fs_cache_path(repos: list[str], branch: str) -> str:
-    key = hashlib.sha256(
-        _json.dumps(sorted(repos) + [branch]).encode(),
+def _cache_digest(repos: list[str], branch: str) -> str:
+    """Stable hash of repos + branch for both memory and fs caches."""
+    return hashlib.sha256(
+        _json.dumps(sorted(repos) + [branch or ""]).encode(),
     ).hexdigest()[:16]
-    return os.path.join(_FS_CACHE_DIR, f"{key}.json")
+
+
+def _fs_cache_path(repos: list[str], branch: str) -> str:
+    return os.path.join(
+        _FS_CACHE_DIR, f"{_cache_digest(repos, branch)}.json",
+    )
 
 
 def _read_fs_cache(
@@ -1129,9 +1135,7 @@ def build_all_inventories(
     Set ``no_cache=True`` to force a fresh scan.
     """
     repos = cfg.get("discovery", {}).get("repos", [])
-    cache_key = hashlib.sha256(
-        _json.dumps(sorted(repos) + [branch or ""]).encode(),
-    ).hexdigest()[:16]
+    cache_key = _cache_digest(repos, branch)
 
     if not no_cache and cache_key in _inventory_cache:
         return _inventory_cache[cache_key]
@@ -1225,18 +1229,23 @@ def invalidate_cache(
     branch: str = "",
     cfg: dict[str, Any] | None = None,
 ) -> None:
-    """Clear both in-process and filesystem inventory caches."""
-    repos = cfg.get("discovery", {}).get("repos", []) if cfg else []
-    key = hashlib.sha256(
-        _json.dumps(sorted(repos) + [branch or ""]).encode(),
-    ).hexdigest()[:16]
-    _inventory_cache.pop(key, None)
+    """Clear both in-process and filesystem inventory caches.
+
+    Pass the same ``cfg`` used with ``build_all_inventories``
+    so that the correct cache entry is evicted.  Without ``cfg``
+    the function clears **all** in-process entries as a fallback.
+    """
     if cfg is not None:
+        repos = cfg.get("discovery", {}).get("repos", [])
+        key = _cache_digest(repos, branch)
+        _inventory_cache.pop(key, None)
         path = _fs_cache_path(repos, branch)
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
+    else:
+        _inventory_cache.clear()
 
 
 def format_inventory(inv: ObservabilityInventory) -> str:

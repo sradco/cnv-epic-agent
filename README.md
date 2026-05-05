@@ -221,15 +221,18 @@ version-scoped observability epic:
 
 ### 12. Report Summary
 
-Both dry-run and apply modes end with a structured summary:
+Both dry-run and apply modes include a structured summary
+**at the top of the report**, right after the run metadata
+header:
 
-- **Per-epic table** — shows each epic with story counts by
-  category (metrics, alerts, docs, qe, ...), total, and a
-  **Status** column (`groomed`, `needs grooming`, or
-  `nothing to do`)
+- **Per-epic table** — sorted by status (errors and grooming
+  first), with clickable links to each epic's detail section.
+  Columns: Epic, Status, category counts, and Total.
+  Status values: `error`, `llm error`, `needs grooming`,
+  `nothing to do`, or `groomed`.
 - **Overall statistics** — epics processed, stories
-  created/would create, duplicates skipped, LLM errors, and
-  story points set
+  created/would create, duplicates skipped, LLM errors,
+  story points set/failed
 
 ### 13. Story Point Estimation for Existing Issues
 
