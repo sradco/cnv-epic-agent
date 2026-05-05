@@ -251,10 +251,7 @@ def _has_metric_backing(
     - The proposals include new metric proposals.
     - The inventory contains domain-relevant existing metrics.
     """
-    if "metrics" not in [
-        cat for cat, data in proposals.items()
-        if cat == "metrics"
-    ]:
+    if "metrics" not in proposals:
         if "metrics" in all_coverage_categories:
             return True
 
@@ -286,9 +283,9 @@ def _propose_from_inventory(
     category: str,
     keywords: list[str],
     inventory: Any,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Find relevant existing artifacts with a rationale for each."""
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
     if category == "metrics" and hasattr(inventory, "metrics"):

@@ -1128,12 +1128,14 @@ def build_all_inventories(
     repeated invocations don't re-clone repos unnecessarily.
     Set ``no_cache=True`` to force a fresh scan.
     """
-    cache_key = branch or "__default__"
+    repos = cfg.get("discovery", {}).get("repos", [])
+    cache_key = hashlib.sha256(
+        _json.dumps(sorted(repos) + [branch or ""]).encode(),
+    ).hexdigest()[:16]
 
     if not no_cache and cache_key in _inventory_cache:
         return _inventory_cache[cache_key]
 
-    repos = cfg.get("discovery", {}).get("repos", [])
     cache_ttl = int(
         cfg.get("discovery", {}).get(
             "cache_ttl_seconds", _DEFAULT_CACHE_TTL_S,
@@ -1224,10 +1226,12 @@ def invalidate_cache(
     cfg: dict[str, Any] | None = None,
 ) -> None:
     """Clear both in-process and filesystem inventory caches."""
-    key = branch or "__default__"
+    repos = cfg.get("discovery", {}).get("repos", []) if cfg else []
+    key = hashlib.sha256(
+        _json.dumps(sorted(repos) + [branch or ""]).encode(),
+    ).hexdigest()[:16]
     _inventory_cache.pop(key, None)
     if cfg is not None:
-        repos = cfg.get("discovery", {}).get("repos", [])
         path = _fs_cache_path(repos, branch)
         try:
             os.remove(path)

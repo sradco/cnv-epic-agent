@@ -142,9 +142,10 @@ class TestRunnerDryRun:
         assert "## Summary" in report
         assert "Epics processed | 1" in report
         assert "Stories would create | 1" in report
-        assert "| Epic | metrics | Total | Status |" in report
+        assert "| Epic | Status | metrics | Total |" in report
         assert (
-            "| CNV-100 | 1 | 1 | groomed |" in report
+            "| [CNV-100](#cnv-100) | groomed | 1 | 1 |"
+            in report
         )
 
     @patch("agent.runner._load_config")
@@ -901,7 +902,8 @@ class TestLLMClarityCheck:
         )
 
         assert "NEEDS GROOMING" not in report
-        assert "Separate observability repo" not in report
+        assert "Separate observability repo" in report
+        assert "No stories to create" in report
         assert "nothing to report" in report
         mock_clarity.assert_called_once()
         mock_compose.assert_called_once()
@@ -976,7 +978,8 @@ class TestLLMClarityCheck:
         )
 
         assert "NEEDS GROOMING" not in report
-        assert "Some epic" not in report
+        assert "Some epic" in report
+        assert "No stories to create" in report
         assert "nothing to report" in report
         mock_compose.assert_called_once()
 

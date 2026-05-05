@@ -13,8 +13,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import yaml
-
 from agent.analyzer.analysis import build_analysis_result
 from agent.analyzer.formatter import build_subtask_payloads
 from agent.planner.llm import LLMError
@@ -41,9 +39,13 @@ from agent.jira.client import (
     search_epics,
     update_story_points,
 )
-from schemas.stories import VALID_CATEGORIES, StoryPayload
+from schemas.stories import StoryPayload
 
 logger = logging.getLogger(__name__)
+
+STATUS_GROOMED = "groomed"
+STATUS_NEEDS_GROOMING = "needs grooming"
+STATUS_NOTHING_TO_DO = "nothing to do"
 
 _DEFAULT_CONFIG_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -51,7 +53,7 @@ _DEFAULT_CONFIG_PATH = os.path.join(
 )
 
 
-from schemas.config import AppConfig, ConfigError  # noqa: E402
+from schemas.config import AppConfig, ConfigError
 
 
 def _load_config(
@@ -126,7 +128,7 @@ class _RunCounters:
         tally = self._get_or_create_tally(epic_key)
         tally.record(category)
         if not tally.status:
-            tally.status = "groomed"
+            tally.status = STATUS_GROOMED
 
     def record_epic_status(
         self, epic_key: str, status: str,
@@ -481,8 +483,9 @@ def _handle_grooming(
     grooming_label = app_cfg.grooming.label
     ctx.counters.needs_grooming += 1
     ctx.counters.record_epic_status(
-        epic_key, "needs grooming",
+        epic_key, STATUS_NEEDS_GROOMING,
     )
+    lines.append(f'<a id="{_epic_anchor(epic_key)}"></a>')
     lines.append(
         f"## {epic_key} — {epic_summary} — NEEDS GROOMING"
     )
@@ -571,7 +574,11 @@ def _process_epic(
             "[%s] Failed to fetch %s",
             run_id, epic_key, exc_info=True,
         )
-        return [f"## {epic_key} — ERROR (fetch failed)", ""]
+        return [
+            f'<a id="{_epic_anchor(epic_key)}"></a>',
+            f"## {epic_key} — ERROR (fetch failed)",
+            "",
+        ]
 
     flagged, grooming_reason = _check_grooming(
         epic, children, cfg, app_cfg, ctx,
@@ -588,6 +595,7 @@ def _process_epic(
     )
 
     epic_header: list[str] = []
+    epic_header.append(f'<a id="{_epic_anchor(epic_key)}"></a>')
     epic_header.append(f"## {epic_key} — {epic.summary}")
     epic_components = result.get("epic_components", [])
     if epic_components:
@@ -653,9 +661,11 @@ def _process_epic(
     if not stories:
         ctx.counters.skipped_epics += 1
         ctx.counters.record_epic_status(
-            epic_key, "nothing to do",
+            epic_key, STATUS_NOTHING_TO_DO,
         )
-        return []
+        return epic_header + [
+            "No stories to create for this epic.", "",
+        ]
 
     if ctx.version:
         obs_epic = find_or_create_obs_epic(
@@ -694,12 +704,17 @@ def _process_epic(
     return lines
 
 
+def _epic_anchor(epic_key: str) -> str:
+    """Return a stable anchor id for an epic's detail section."""
+    return epic_key.lower()
+
+
 def _build_report_summary(
     counters: _RunCounters,
     processed: int,
     apply: bool,
 ) -> list[str]:
-    """Build the summary tables at the end of the report."""
+    """Build the summary tables for the report header."""
     lines: list[str] = []
     lines.append("---")
     lines.append("")
@@ -710,21 +725,36 @@ def _build_report_summary(
 
     all_cats = sorted(counters.by_category)
     if counters.epic_tallies:
+        _STATUS_ORDER = {
+            STATUS_NEEDS_GROOMING: 0,
+            STATUS_NOTHING_TO_DO: 1,
+            STATUS_GROOMED: 2,
+            "": 3,
+        }
+        sorted_tallies = sorted(
+            counters.epic_tallies,
+            key=lambda t: (
+                _STATUS_ORDER.get(t.status, 3), t.key,
+            ),
+        )
+
         if all_cats:
             cat_headers = " | ".join(all_cats)
             cat_sep = " | ".join("---" for _ in all_cats)
             lines.append(
-                f"| Epic | {cat_headers}"
-                f" | Total | Status |"
+                f"| Epic | Status | {cat_headers}"
+                f" | Total |"
             )
             lines.append(
-                f"| --- | {cat_sep}"
-                f" | --- | --- |"
+                f"| --- | --- | {cat_sep}"
+                f" | --- |"
             )
         else:
-            lines.append("| Epic | Total | Status |")
+            lines.append("| Epic | Status | Total |")
             lines.append("| --- | --- | --- |")
-        for tally in counters.epic_tallies:
+        for tally in sorted_tallies:
+            anchor = _epic_anchor(tally.key)
+            link = f"[{tally.key}](#{anchor})"
             cols = " | ".join(
                 str(tally.by_category.get(c, 0))
                 for c in all_cats
@@ -732,13 +762,13 @@ def _build_report_summary(
             status = tally.status or ""
             if all_cats:
                 lines.append(
-                    f"| {tally.key} | {cols}"
-                    f" | {tally.total} | {status} |"
+                    f"| {link} | {status} | {cols}"
+                    f" | {tally.total} |"
                 )
             else:
                 lines.append(
-                    f"| {tally.key}"
-                    f" | {tally.total} | {status} |"
+                    f"| {link} | {status}"
+                    f" | {tally.total} |"
                 )
         if all_cats:
             total_cols = " | ".join(
@@ -746,12 +776,12 @@ def _build_report_summary(
                 for c in all_cats
             )
             lines.append(
-                f"| **Total** | {total_cols} | "
-                f"{counters.created} | |"
+                f"| **Total** | | {total_cols} | "
+                f"{counters.created} |"
             )
         else:
             lines.append(
-                f"| **Total** | {counters.created} | |"
+                f"| **Total** | | {counters.created} |"
             )
         lines.append("")
 
@@ -834,6 +864,12 @@ def run(
     run_id = uuid.uuid4().hex[:8]
     app_cfg = _load_config(config_path)
     cfg = app_cfg.raw
+
+    if apply and not version:
+        raise ConfigError(
+            "Cannot apply changes without a version. "
+            "Pass --version to specify the target CNV version."
+        )
 
     if not model:
         model = os.environ.get(

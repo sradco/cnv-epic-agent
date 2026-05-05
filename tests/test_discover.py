@@ -1,7 +1,7 @@
 """Tests for the code discovery module."""
 
-import fnmatch
 import os
+import sys
 
 from agent.discovery.discover import (
     ObservabilityInventory,

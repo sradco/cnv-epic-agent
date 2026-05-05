@@ -23,6 +23,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent", "prompts", "schemas"]
+artifacts = ["config.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

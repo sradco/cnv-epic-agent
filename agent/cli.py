@@ -133,7 +133,11 @@ def main() -> None:
     parser.add_argument(
         "--output", "-o",
         default=None,
-        help="Write report to a file (in addition to stdout)",
+        help=(
+            "Write report to a file (in addition to stdout). "
+            "A UTC timestamp is appended before the extension, "
+            "e.g. report-20260505-120000.md"
+        ),
     )
     parser.add_argument(
         "--verbose", "-v",

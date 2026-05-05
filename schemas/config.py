@@ -113,12 +113,39 @@ class AppConfig:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _parse_category_list(val: Any) -> list[str]:
+        """Coerce enabled_categories safely.
+
+        A YAML scalar string like ``"metrics"`` would be turned into
+        ``['m', 'e', 't', ...]`` by ``list()``.  Detect that and split
+        on commas instead.
+        """
+        if isinstance(val, str):
+            return [c.strip() for c in val.split(",") if c.strip()]
+        if isinstance(val, list):
+            return [str(c) for c in val]
+        raise ConfigError(
+            f"enabled_categories must be a list or "
+            f"comma-separated string, got {type(val).__name__}"
+        )
+
+    @staticmethod
     def _parse_float(val: Any, field_name: str) -> float:
         try:
             return float(val)
         except (ValueError, TypeError):
             raise ConfigError(
                 f"{field_name} must be a number, "
+                f"got {val!r}"
+            )
+
+    @staticmethod
+    def _parse_int(val: Any, field_name: str) -> int:
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            raise ConfigError(
+                f"{field_name} must be an integer, "
                 f"got {val!r}"
             )
 
@@ -140,9 +167,10 @@ class AppConfig:
                     j.get("default_project",
                            JiraConfig.default_project),
                 ),
-                default_since_days=int(
+                default_since_days=cls._parse_int(
                     j.get("default_since_days",
                            JiraConfig.default_since_days),
+                    "jira.default_since_days",
                 ),
                 version_format=str(
                     j.get("version_format",
@@ -188,17 +216,20 @@ class AppConfig:
                     g.get("skip_label",
                            GroomingConfig.skip_label),
                 ),
-                comment_cooldown_days=int(
+                comment_cooldown_days=cls._parse_int(
                     g.get("comment_cooldown_days",
                            GroomingConfig.comment_cooldown_days),
+                    "grooming.comment_cooldown_days",
                 ),
-                min_description_length=int(
+                min_description_length=cls._parse_int(
                     g.get("min_description_length",
                            GroomingConfig.min_description_length),
+                    "grooming.min_description_length",
                 ),
-                min_children=int(
+                min_children=cls._parse_int(
                     g.get("min_children",
                            GroomingConfig.min_children),
+                    "grooming.min_children",
                 ),
                 llm_clarity_check=bool(
                     g.get("llm_clarity_check",
@@ -210,16 +241,17 @@ class AppConfig:
                     a.get("default_model",
                            AgentConfig.default_model),
                 ),
-                max_stories_per_run=int(
+                max_stories_per_run=cls._parse_int(
                     a.get("max_stories_per_run",
                            AgentConfig.max_stories_per_run),
+                    "agent.max_stories_per_run",
                 ),
                 temperature=cls._parse_float(
                     a.get("temperature",
                            AgentConfig.temperature),
                     "agent.temperature",
                 ),
-                enabled_categories=list(
+                enabled_categories=cls._parse_category_list(
                     a.get("enabled_categories", [
                         "metrics", "alerts", "dashboards",
                         "telemetry", "docs", "qe",
@@ -238,8 +270,9 @@ class AppConfig:
             ),
             discovery=DiscoveryConfig(
                 repos=list(disc.get("repos", [])),
-                cache_ttl_seconds=int(
+                cache_ttl_seconds=cls._parse_int(
                     disc.get("cache_ttl_seconds", 3600),
+                    "discovery.cache_ttl_seconds",
                 ),
             ),
             telemetry=TelemetryConfig(
@@ -255,7 +288,7 @@ class AppConfig:
     @classmethod
     def from_yaml(cls, path: str) -> AppConfig:
         """Load and validate config from a YAML file."""
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         if not isinstance(raw, dict):
             raise ConfigError(
@@ -283,4 +316,34 @@ class AppConfig:
             raise ConfigError(
                 f"temperature must be a number, "
                 f"got {type(self.agent.temperature).__name__}"
+            )
+        if not 0.0 <= self.agent.temperature <= 2.0:
+            raise ConfigError(
+                f"temperature must be between 0.0 and 2.0, "
+                f"got {self.agent.temperature}"
+            )
+
+        if self.grooming.min_children < 0:
+            raise ConfigError(
+                "grooming.min_children must be >= 0"
+            )
+        if self.grooming.min_description_length < 0:
+            raise ConfigError(
+                "grooming.min_description_length must be >= 0"
+            )
+        if self.grooming.comment_cooldown_days < 0:
+            raise ConfigError(
+                "grooming.comment_cooldown_days must be >= 0"
+            )
+        if self.discovery.cache_ttl_seconds < 0:
+            raise ConfigError(
+                "discovery.cache_ttl_seconds must be >= 0"
+            )
+        if self.agent.max_stories_per_run < 1:
+            raise ConfigError(
+                "agent.max_stories_per_run must be >= 1"
+            )
+        if self.jira.default_since_days < 1:
+            raise ConfigError(
+                "jira.default_since_days must be >= 1"
             )

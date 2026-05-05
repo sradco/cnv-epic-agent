@@ -431,7 +431,7 @@ def find_broad_matching_stories(
         f'summary ~ "{_escape_jql(kw)}"' for kw in usable
     )
     jql = (
-        f"project = {project} "
+        f'project = "{_escape_jql(project)}" '
         f"AND type = Story "
         f"AND status not in (Closed, Done, Verified) "
         f"AND ({keyword_clause})"
@@ -697,7 +697,7 @@ def create_obs_story(
     story_label = creation_cfg.get("story_label", "epic-agent-generated")
     epic_label = creation_cfg.get("epic_label", "cnv-observability")
     sp_field = creation_cfg.get(
-        "story_points_field", "story_points",
+        "story_points_field", "customfield_10028",
     )
 
     s_hash = _hash_summary(summary)
@@ -803,7 +803,7 @@ def update_story_points(
     """
     creation_cfg = cfg.get("creation", {})
     sp_field = creation_cfg.get(
-        "story_points_field", "story_points",
+        "story_points_field", "customfield_10028",
     )
 
     issue = client.issue(issue_key)
@@ -854,7 +854,7 @@ def fetch_unsized_stories(
     """
     creation_cfg = cfg.get("creation", {})
     sp_field = creation_cfg.get(
-        "story_points_field", "story_points",
+        "story_points_field", "customfield_10028",
     )
     jira_cfg = cfg.get("jira", {})
     proj = jira_cfg.get("default_project", "CNV")
