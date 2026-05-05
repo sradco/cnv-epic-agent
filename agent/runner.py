@@ -246,6 +246,7 @@ def _dedup_and_create(
                     story.summary, story.description,
                     story_points=story.story_points,
                     category=story.category,
+                    run_id=ctx.run_id,
                 )
                 ctx.counters.created += 1
                 ctx.counters.record_category(

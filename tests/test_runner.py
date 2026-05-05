@@ -1201,3 +1201,62 @@ class TestIssueDocDict:
         doc = IssueDoc.from_jira(raw)
         assert doc.key == "CNV-99"
         assert doc.summary == "Flat"
+
+
+class TestFeedbackFooter:
+    """Tests for _build_feedback_footer in agent.jira.client."""
+
+    def _footer(self, **kwargs):
+        from agent.jira.client import _build_feedback_footer
+        defaults = dict(
+            summary="Add CDI import metrics",
+            source_epic_key="CNV-86474",
+            category="metrics",
+            run_id="run-abc123",
+            feedback_repo="https://github.com/sradco/cnv-epic-agent",
+        )
+        defaults.update(kwargs)
+        return _build_feedback_footer(**defaults)
+
+    def test_no_repo_returns_plain_attribution(self):
+        footer = self._footer(feedback_repo="")
+        assert "cnv-grooming-agent" in footer
+        assert "report issue" not in footer
+        assert "github.com" not in footer
+
+    def test_with_repo_contains_link(self):
+        footer = self._footer()
+        assert "[report issue|" in footer
+        assert "github.com/sradco/cnv-epic-agent/issues/new" in footer
+
+    def test_url_contains_template_param(self):
+        footer = self._footer()
+        assert "template=agent-feedback.yml" in footer
+
+    def test_url_contains_epic_key(self):
+        footer = self._footer()
+        assert "CNV-86474" in footer
+
+    def test_url_contains_category(self):
+        footer = self._footer()
+        assert "metrics" in footer
+
+    def test_url_contains_run_id(self):
+        footer = self._footer()
+        assert "run-abc123" in footer
+
+    def test_title_contains_summary(self):
+        footer = self._footer(summary="Add CDI import metrics")
+        # URL-encoded space is +  or %20
+        assert "Add" in footer
+        assert "CDI" in footer
+
+    def test_footer_uses_jira_wiki_markup_separator(self):
+        # Jira wiki markup horizontal rule is ----
+        footer = self._footer()
+        assert "\n----\n" in footer
+
+    def test_footer_does_not_use_markdown_link(self):
+        # Markdown [text](url) must NOT appear — Jira uses [text|url]
+        footer = self._footer()
+        assert "](http" not in footer

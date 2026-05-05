@@ -81,6 +81,7 @@ class AgentConfig:
     story_points: StoryPointsConfig = field(
         default_factory=StoryPointsConfig,
     )
+    feedback_repo: str = ""
 
 
 @dataclass
@@ -295,6 +296,7 @@ class AppConfig:
                     ),
                     guidance=str(sp.get("guidance", "")),
                 ),
+                feedback_repo=str(a.get("feedback_repo", "")),
             ),
             discovery=DiscoveryConfig(
                 repos=cls._parse_str_list(

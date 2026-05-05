@@ -265,6 +265,7 @@ observability_patterns:
         user_action: "Capacity planning and incident investigation for {domain}-related performance issues."
 
 agent:
+  feedback_repo: "https://github.com/sradco/cnv-epic-agent"
   default_model: "gpt-4o"
   max_stories_per_run: 200
   temperature: 0.0
