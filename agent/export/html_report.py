@@ -148,13 +148,17 @@ class _EpicRenderer(mistune.HTMLRenderer):
             # anchor tags around the epic key don't break the regex.
             plain = re.sub(r"<[^>]+>", "", text)
             if _EPIC_HEADING_RE.match(plain.strip()):
-                # Top-level epic / summary section → collapsible block
+                # Top-level epic / summary section → collapsible block.
+                # The Summary section starts open; epic sections start
+                # collapsed so the report is scannable by default.
                 prefix = "</div></details>\n" if self._in_section else ""
                 self._in_section = True
                 summary_text = _badges_in_heading(text)
+                is_summary = plain.strip() == "Summary"
+                open_attr = " open" if is_summary else ""
                 return (
                     f"{prefix}"
-                    f'<details open>\n'
+                    f'<details{open_attr}>\n'
                     f"<summary>{summary_text}</summary>\n"
                     f'<div class="details-body">\n'
                 )
