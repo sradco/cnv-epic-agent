@@ -669,6 +669,34 @@ def _process_epic(
             "",
         ]
 
+    # Populate tally with version metadata immediately after fetch
+    # so the data is available even if the epic exits early (grooming).
+    tally = ctx.counters._get_or_create_tally(epic_key)
+    fields = getattr(epic_issue, "fields", None)
+    fix_versions = getattr(fields, "fixVersions", None) or []
+    if fix_versions:
+        tally.fix_version = (
+            fix_versions[0].get("name", "") if isinstance(fix_versions[0], dict)
+            else getattr(fix_versions[0], "name", "")
+        )
+    tv_field = app_cfg.jira.target_version_field
+    if tv_field:
+        tv_raw = getattr(fields, tv_field, None)
+        if tv_raw is not None:
+            # Target Version is a list of JIRA Version objects (same
+            # structure as fixVersions).  Join all names into one string.
+            if isinstance(tv_raw, list):
+                names = [
+                    v.get("name", "") if isinstance(v, dict)
+                    else getattr(v, "name", str(v))
+                    for v in tv_raw
+                ]
+                tally.target_version = ", ".join(n for n in names if n)
+            elif isinstance(tv_raw, dict):
+                tally.target_version = tv_raw.get("name", "")
+            else:
+                tally.target_version = str(tv_raw)
+
     flagged, grooming_reason = _check_grooming(
         epic, children, cfg, app_cfg, ctx,
         use_llm=use_llm, model=model, temperature=temperature,
@@ -696,26 +724,6 @@ def _process_epic(
         f"Gaps: {', '.join(result.get('gaps', []))}"
     )
     epic_header.append("")
-
-    # Populate tally with version and label metadata.
-    tally = ctx.counters._get_or_create_tally(epic_key)
-    fix_versions = getattr(
-        getattr(epic_issue, "fields", None), "fixVersions", None,
-    ) or []
-    if fix_versions:
-        tally.fix_version = fix_versions[0].get("name", "") if isinstance(
-            fix_versions[0], dict,
-        ) else getattr(fix_versions[0], "name", "")
-    tv_field = app_cfg.jira.target_version_field
-    if tv_field:
-        tv_raw = getattr(
-            getattr(epic_issue, "fields", None), tv_field, None,
-        )
-        if tv_raw is not None:
-            tally.target_version = (
-                tv_raw.get("value", "") if isinstance(tv_raw, dict)
-                else str(tv_raw)
-            )
 
     # Sum existing child SP by category.
     for child in children:
@@ -939,6 +947,18 @@ def _build_report_summary(
     action = "created" if apply else "would create"
 
     if counters.epic_tallies:
+        # Table 1 sorts by fix_version descending (epics with a version
+        # come first, then no-version epics), then by status, then key.
+        sorted_by_version = sorted(
+            counters.epic_tallies,
+            key=lambda t: (
+                "" if t.fix_version else "\xff",  # blank sorts before \xff
+                t.fix_version,
+                _STATUS_ORDER.get(t.status, 5),
+                t.key,
+            ),
+        )
+        # Table 2 keeps the original status-first ordering.
         sorted_tallies = sorted(
             counters.epic_tallies,
             key=lambda t: (_STATUS_ORDER.get(t.status, 5), t.key),
@@ -952,7 +972,7 @@ def _build_report_summary(
             " | Dev SP | QE SP | Docs SP |"
         )
         lines.append("| --- | --- | --- | --- | --- | --- | --- |")
-        for tally in sorted_tallies:
+        for tally in sorted_by_version:
             anchor = _epic_anchor(tally.key)
             link = f"[{tally.key}](#{anchor})"
             status = tally.status or ""
