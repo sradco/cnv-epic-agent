@@ -991,7 +991,7 @@ def _build_report_summary(
                 tally.dev_sp_existing, tally.dev_sp_proposed,
             )
             qe_sp = (
-                "no-QE" if tally.has_no_qe
+                "no-qe" if tally.has_no_qe
                 else _sp_cell(
                     tally.qe_sp_existing, tally.qe_sp_proposed,
                 )

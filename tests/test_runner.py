@@ -1393,7 +1393,7 @@ class TestBuildReportSummaryTwoTables:
         c = self._make_counters([t])
         lines = _build_report_summary(c, 1, apply=False)
         text = "\n".join(lines)
-        assert "no-QE" in text
+        assert "no-qe" in text
 
     def test_no_doc_shown_in_planning(self):
         from agent.runner import _EpicTally, _build_report_summary
