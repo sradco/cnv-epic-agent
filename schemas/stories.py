@@ -1,8 +1,4 @@
-"""Data contracts for story payloads and analysis results.
-
-Shared by both the MCP prompt layer and the standalone agent so that
-both produce identically-shaped output.
-"""
+"""Data contracts for story payloads and analysis results."""
 
 from __future__ import annotations
 
@@ -23,6 +19,7 @@ class StoryPayload:
     summary: str
     description: str
     story_points: int | None = None
+    reasoning: str = ""
 
 
 SP_ESTIMATION_JSON_SCHEMA: dict[str, Any] = {
@@ -104,9 +101,20 @@ STORY_JSON_SCHEMA: dict[str, Any] = {
                             "(1, 2, 3, 5, 8, 13)"
                         ),
                     },
+                    "reasoning": {
+                        "type": "string",
+                        "description": (
+                            "One or two sentences explaining WHY this "
+                            "story is needed — what new runtime behavior "
+                            "does the epic introduce that is not already "
+                            "covered? If you cannot articulate a clear "
+                            "reason, do not propose the story."
+                        ),
+                    },
                 },
                 "required": [
-                    "category", "summary", "description", "story_points",
+                    "category", "summary", "description",
+                    "story_points", "reasoning",
                 ],
             },
         },

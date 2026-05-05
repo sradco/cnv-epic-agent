@@ -142,6 +142,12 @@ class TestRunnerDryRun:
         assert "Description here" in report
         assert "**Category:** metrics" in report
 
+        assert "## Summary" in report
+        assert "Epics processed | 1" in report
+        assert "Stories would create | 1" in report
+        assert "| Epic | metrics | Total |" in report
+        assert "| CNV-100 | 1 | 1 |" in report
+
     @patch("agent.runner._load_config")
     @patch("agent.runner.get_jira_client")
     @patch("agent.runner.build_all_inventories", return_value={})
@@ -204,7 +210,7 @@ class TestRunnerDryRun:
 
         assert "LLM ERROR" in report
         assert "timeout" in report
-        assert "1 LLM errors" in report
+        assert "LLM errors | 1" in report
 
     @patch("agent.runner._load_config")
     @patch("agent.runner.get_jira_client")
@@ -291,7 +297,7 @@ class TestRunnerDryRun:
         )
 
         assert "SKIP (dup of" in report
-        assert "1 skipped" in report
+        assert "Stories skipped (dup) | 1" in report
 
 
 class TestChildrenCrossCheck:
@@ -387,7 +393,7 @@ class TestChildrenCrossCheck:
         assert "kubevirt_vmi_gpu_info" in report
         assert "WOULD CREATE" in report
         assert "GPU alert rule" in report
-        assert "1 skipped" in report
+        assert "Stories skipped (dup) | 1" in report
 
     @patch("agent.runner._load_config")
     @patch("agent.runner.get_jira_client")
@@ -604,6 +610,8 @@ class TestLabelBasedCategoryFiltering:
 class TestGroomingDetection:
     """Verify epics with insufficient detail are flagged for grooming."""
 
+    @patch("agent.runner.days_since_last_agent_comment",
+           return_value=None)
     @patch("agent.runner.build_all_inventories")
     @patch("agent.runner.get_jira_client")
     @patch("agent.runner.search_epics")
@@ -612,7 +620,7 @@ class TestGroomingDetection:
     @patch("agent.runner.yaml")
     def test_dry_run_reports_needs_grooming(
         self, mock_yaml, mock_validate, mock_fetch, mock_search,
-        mock_client, mock_inv,
+        mock_client, mock_inv, mock_days,
     ):
         from agent.runner import run
 
@@ -647,6 +655,53 @@ class TestGroomingDetection:
         assert "Sparse epic" in report
         assert "grooming" in report.lower()
         assert "Would add" in report
+        assert "Epics needing grooming | 1" in report
+
+    @patch("agent.runner.days_since_last_agent_comment",
+           return_value=3.0)
+    @patch("agent.runner.build_all_inventories")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.search_epics")
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner._validate_config")
+    @patch("agent.runner.yaml")
+    def test_grooming_comment_throttled_when_recent(
+        self, mock_yaml, mock_validate, mock_fetch, mock_search,
+        mock_client, mock_inv, mock_days,
+    ):
+        from agent.runner import run
+
+        cfg = _minimal_cfg()
+        cfg["grooming"] = {
+            "label": "grooming",
+            "min_description_length": 50,
+            "min_children": 1,
+            "comment_cooldown_days": 7,
+        }
+        mock_yaml.safe_load.return_value = cfg
+
+        epic_issue = _fake_jira_issue(
+            "CNV-350", "Sparse epic", description="Short",
+        )
+        mock_search.return_value = [epic_issue]
+
+        from schemas.issue_doc import IssueDoc
+        sparse_epic = IssueDoc(
+            key="CNV-350", summary="Sparse epic",
+            description="Short",
+        )
+        mock_fetch.return_value = (sparse_epic, [])
+
+        report = run(
+            epic_keys=["CNV-350"],
+            version="4.23",
+            apply=False,
+            use_llm=False,
+        )
+
+        assert "NEEDS GROOMING" in report
+        assert "comment skipped" in report
+        assert "3d ago" in report
 
     @patch("agent.runner.build_all_inventories")
     @patch("agent.runner.get_jira_client")
@@ -697,6 +752,8 @@ class TestGroomingDetection:
 class TestLLMClarityCheck:
     """Verify LLM clarity check integration in the runner."""
 
+    @patch("agent.runner.days_since_last_agent_comment",
+           return_value=None)
     @patch("agent.runner.check_epic_clarity")
     @patch("agent.runner.build_all_inventories")
     @patch("agent.runner.get_jira_client")
@@ -706,7 +763,7 @@ class TestLLMClarityCheck:
     @patch("agent.runner.yaml")
     def test_llm_flags_vague_epic(
         self, mock_yaml, mock_validate, mock_fetch, mock_search,
-        mock_client, mock_inv, mock_clarity,
+        mock_client, mock_inv, mock_clarity, mock_days,
     ):
         from agent.runner import run
 

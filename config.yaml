@@ -10,12 +10,15 @@ creation:
   project: "CNV"
   component: "CNV Install, Upgrade and Operators"
   epic_label: "cnv-observability"
+  obs_epic_label: "cnv-grooming-agent"
   story_label: "epic-agent-generated"
   epic_summary_format: "[Observability] CNV {version} — Auto-generated observability stories"
   story_points_field: "customfield_10028"
 
 grooming:
   label: "grooming"
+  skip_label: "cnv-grooming-agent-skip"
+  comment_cooldown_days: 7
   min_description_length: 50
   min_children: 1
   llm_clarity_check: true
@@ -264,7 +267,7 @@ observability_patterns:
 agent:
   default_model: "gpt-4o"
   max_stories_per_run: 200
-  temperature: 0.2
+  temperature: 0.0
   enabled_categories:
     - metrics
     - alerts

@@ -33,6 +33,7 @@ from agent.jira.client import (
     add_grooming_comment,
     add_grooming_label,
     create_obs_story,
+    days_since_last_agent_comment,
     fetch_epic_with_children,
     fetch_unsized_stories,
     find_broad_matching_stories,
@@ -100,6 +101,25 @@ def _validate_config(cfg: dict[str, Any]) -> None:
         raise ConfigError("'creation' section must be a mapping")
 
 
+class _EpicTally:
+    """Per-epic story counts by category."""
+
+    __slots__ = ("key", "by_category")
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        self.by_category: dict[str, int] = {}
+
+    def record(self, category: str) -> None:
+        self.by_category[category] = (
+            self.by_category.get(category, 0) + 1
+        )
+
+    @property
+    def total(self) -> int:
+        return sum(self.by_category.values())
+
+
 class _RunCounters:
     """Mutable counters for a single run."""
 
@@ -111,6 +131,23 @@ class _RunCounters:
         self.llm_errors = 0
         self.sp_updated = 0
         self.sp_skipped = 0
+        self.needs_grooming = 0
+        self.by_category: dict[str, int] = {}
+        self.epic_tallies: list[_EpicTally] = []
+
+    def record_category(
+        self, category: str, epic_key: str,
+    ) -> None:
+        self.by_category[category] = (
+            self.by_category.get(category, 0) + 1
+        )
+        for tally in self.epic_tallies:
+            if tally.key == epic_key:
+                tally.record(category)
+                return
+        t = _EpicTally(epic_key)
+        t.record(category)
+        self.epic_tallies.append(t)
 
 
 class _RunContext:
@@ -206,6 +243,9 @@ def _dedup_and_create(
                     category=story.category,
                 )
                 ctx.counters.created += 1
+                ctx.counters.record_category(
+                    story.category, epic_key,
+                )
                 sp_tag = (
                     f" ({story.story_points}sp)"
                     if story.story_points else ""
@@ -227,6 +267,9 @@ def _dedup_and_create(
                 lines.append(f"- ERROR: {story.summary}")
         else:
             ctx.counters.created += 1
+            ctx.counters.record_category(
+                story.category, epic_key,
+            )
             sp_tag = (
                 f" ({story.story_points}sp)"
                 if story.story_points else ""
@@ -238,6 +281,10 @@ def _dedup_and_create(
             lines.append(
                 f"  **Category:** {story.category}"
             )
+            if story.reasoning:
+                lines.append(
+                    f"  **Reasoning:** {story.reasoning}"
+                )
             if story.description:
                 lines.append("")
                 for desc_line in story.description.splitlines():
@@ -540,6 +587,7 @@ def run(
                 )
 
         if flagged:
+            ctx.counters.needs_grooming += 1
             report_lines.append(
                 f"## {epic_key} — {epic.summary} — NEEDS GROOMING"
             )
@@ -549,17 +597,33 @@ def run(
                 f"Please add more detail and remove the "
                 f"*{grooming_label}* label to re-enable processing."
             )
+            cooldown = int(
+                grooming_cfg.get("comment_cooldown_days", 7),
+            )
+            last_days = days_since_last_agent_comment(
+                client, epic_key,
+            )
+            comment_due = (
+                last_days is None or last_days >= cooldown
+            )
             if apply:
                 try:
                     add_grooming_label(client, cfg, epic_key)
-                    add_grooming_comment(
-                        client, cfg, epic_key,
-                        comment_override=comment_text,
-                    )
-                    report_lines.append(
-                        f"Added *{grooming_label}* label and "
-                        f"comment to {epic_key}."
-                    )
+                    if comment_due:
+                        add_grooming_comment(
+                            client, cfg, epic_key,
+                            comment_override=comment_text,
+                        )
+                        report_lines.append(
+                            f"Added *{grooming_label}* label and "
+                            f"comment to {epic_key}."
+                        )
+                    else:
+                        report_lines.append(
+                            f"Label *{grooming_label}* ensured on "
+                            f"{epic_key}; comment skipped "
+                            f"(last reminder {last_days:.0f}d ago)."
+                        )
                 except Exception:
                     logger.error(
                         "[%s] Failed to label/comment %s for "
@@ -570,10 +634,17 @@ def run(
                         f"Failed to add grooming label/comment."
                     )
             else:
-                report_lines.append(
-                    f"*Would add '{grooming_label}' label and "
-                    f"grooming comment.*"
-                )
+                if comment_due:
+                    report_lines.append(
+                        f"*Would add '{grooming_label}' label and "
+                        f"grooming comment.*"
+                    )
+                else:
+                    report_lines.append(
+                        f"*Would add '{grooming_label}' label; "
+                        f"comment skipped "
+                        f"(last reminder {last_days:.0f}d ago).*"
+                    )
             report_lines.append("")
             continue
 
@@ -692,35 +763,81 @@ def run(
         report_lines.append("")
 
     report_lines.append("---")
+    report_lines.append("")
+    report_lines.append("## Summary")
+    report_lines.append("")
 
     counters = ctx.counters
-    sp_summary = ""
-    if counters.sp_updated or counters.sp_skipped:
-        sp_summary = (
-            f", {counters.sp_updated} SP "
-            f"{'set' if apply else 'would set'}"
+    action = "created" if apply else "would create"
+    processed = len(epics_to_process)
+
+    all_cats = sorted(counters.by_category)
+    if counters.epic_tallies:
+        cat_headers = " | ".join(all_cats)
+        cat_sep = " | ".join("---" for _ in all_cats)
+        report_lines.append(
+            f"| Epic | {cat_headers} | Total |"
         )
-        if counters.sp_skipped:
-            sp_summary += f", {counters.sp_skipped} SP skipped"
+        report_lines.append(
+            f"| --- | {cat_sep} | --- |"
+        )
+        for tally in counters.epic_tallies:
+            cols = " | ".join(
+                str(tally.by_category.get(c, 0))
+                for c in all_cats
+            )
+            report_lines.append(
+                f"| {tally.key} | {cols} | {tally.total} |"
+            )
+        total_cols = " | ".join(
+            str(counters.by_category.get(c, 0))
+            for c in all_cats
+        )
+        report_lines.append(
+            f"| **Total** | {total_cols} | "
+            f"{counters.created} |"
+        )
+        report_lines.append("")
 
-    error_summary = ""
-    if counters.llm_errors:
-        error_summary += f", {counters.llm_errors} LLM errors"
-    if counters.failed:
-        error_summary += f", {counters.failed} failed"
-
-    epic_skip = ""
+    report_lines.append(f"| Metric | Count |")
+    report_lines.append(f"|---|---|")
+    report_lines.append(f"| Epics processed | {processed} |")
+    if counters.needs_grooming:
+        report_lines.append(
+            f"| Epics needing grooming | "
+            f"{counters.needs_grooming} |"
+        )
     if counters.skipped_epics:
-        epic_skip = (
-            f", {counters.skipped_epics} "
-            f"epic(s) with nothing to report"
+        report_lines.append(
+            f"| Epics with nothing to report | "
+            f"{counters.skipped_epics} |"
         )
-
     report_lines.append(
-        f"**Total: {counters.created} "
-        f"{'created' if apply else 'would create'}, "
-        f"{counters.skipped} skipped"
-        f"{epic_skip}{sp_summary}{error_summary}**"
+        f"| Stories {action} | {counters.created} |"
     )
+    if counters.skipped:
+        report_lines.append(
+            f"| Stories skipped (dup) | {counters.skipped} |"
+        )
+    if counters.failed:
+        report_lines.append(
+            f"| Stories failed | {counters.failed} |"
+        )
+    if counters.llm_errors:
+        report_lines.append(
+            f"| LLM errors | {counters.llm_errors} |"
+        )
+    if counters.sp_updated:
+        report_lines.append(
+            f"| Story points "
+            f"{'set' if apply else 'would set'} | "
+            f"{counters.sp_updated} |"
+        )
+    if counters.sp_skipped:
+        report_lines.append(
+            f"| Story points skipped | "
+            f"{counters.sp_skipped} |"
+        )
+    report_lines.append("")
 
     return "\n".join(report_lines)

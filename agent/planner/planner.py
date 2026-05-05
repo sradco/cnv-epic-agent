@@ -130,12 +130,14 @@ def compose_stories(
                 sp, item.get("summary", ""),
             )
             sp_int = None
+        reasoning = item.get("reasoning", "")
         stories.append(
             StoryPayload(
                 category=cat,
                 summary=item.get("summary", ""),
                 description=item.get("description", ""),
                 story_points=sp_int,
+                reasoning=reasoning,
             )
         )
 

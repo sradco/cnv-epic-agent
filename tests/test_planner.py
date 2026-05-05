@@ -761,6 +761,162 @@ class TestFindBroadMatchingStories:
         assert results == []
 
 
+class TestFindOrCreateObsEpic:
+    """Verify obs epic search uses label + version, not summary."""
+
+    _CFG = {
+        "jira": {"version_format": "CNV v{version}"},
+        "creation": {
+            "project": "CNV",
+            "epic_label": "cnv-observability",
+            "obs_epic_label": "cnv-grooming-agent",
+            "component": "CNV Install, Upgrade and Operators",
+            "epic_summary_format": (
+                "[Observability] CNV {version} — stories"
+            ),
+        },
+    }
+
+    def test_search_uses_label_and_version(self):
+        from unittest.mock import MagicMock
+        from agent.jira.client import find_or_create_obs_epic
+
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.key = "CNV-999"
+        mock_issue.fields.summary = "Existing obs epic"
+        mock_client.search_issues.return_value = [mock_issue]
+
+        result = find_or_create_obs_epic(
+            mock_client, self._CFG, "5.0.0", dry_run=True,
+        )
+
+        jql = mock_client.search_issues.call_args[0][0]
+        assert 'cnv-grooming-agent' in jql
+        assert 'fixVersion = "CNV v5.0.0"' in jql
+        assert '"Target Version" = "CNV v5.0.0"' in jql
+        assert 'summary ~' not in jql
+        assert result["key"] == "CNV-999"
+        assert result["created"] is False
+
+    def test_dry_run_returns_placeholder(self):
+        from unittest.mock import MagicMock
+        from agent.jira.client import find_or_create_obs_epic
+
+        mock_client = MagicMock()
+        mock_client.search_issues.return_value = []
+
+        result = find_or_create_obs_epic(
+            mock_client, self._CFG, "5.0.0", dry_run=True,
+        )
+
+        assert result["key"] == "(DRY-RUN)"
+        assert "5.0.0" in result["summary"]
+
+    def test_create_sets_labels_and_version(self):
+        from unittest.mock import MagicMock
+        from agent.jira.client import find_or_create_obs_epic
+
+        mock_client = MagicMock()
+        mock_client.search_issues.return_value = []
+        mock_issue = MagicMock()
+        mock_issue.key = "CNV-1000"
+        mock_client.create_issue.return_value = mock_issue
+
+        result = find_or_create_obs_epic(
+            mock_client, self._CFG, "5.0.0", dry_run=False,
+        )
+
+        assert result["key"] == "CNV-1000"
+        assert result["created"] is True
+
+        fields = mock_client.create_issue.call_args[1]["fields"]
+        assert "cnv-observability" in fields["labels"]
+        assert "cnv-grooming-agent" in fields["labels"]
+        assert fields["fixVersions"] == [
+            {"name": "CNV v5.0.0"},
+        ]
+
+
+class TestDaysSinceLastAgentComment:
+    """Verify agent comment age detection."""
+
+    def test_no_comments_returns_none(self):
+        from unittest.mock import MagicMock
+        from agent.jira.client import days_since_last_agent_comment
+
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.fields.comment.comments = []
+        mock_client.issue.return_value = mock_issue
+
+        assert days_since_last_agent_comment(
+            mock_client, "CNV-100",
+        ) is None
+
+    def test_no_agent_comment_returns_none(self):
+        from unittest.mock import MagicMock
+        from agent.jira.client import days_since_last_agent_comment
+
+        mock_client = MagicMock()
+        comment = MagicMock()
+        comment.body = "Regular human comment"
+        comment.created = "2026-01-01T00:00:00.000+0000"
+        mock_issue = MagicMock()
+        mock_issue.fields.comment.comments = [comment]
+        mock_client.issue.return_value = mock_issue
+
+        assert days_since_last_agent_comment(
+            mock_client, "CNV-100",
+        ) is None
+
+    def test_agent_comment_returns_days(self):
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock
+        from agent.jira.client import days_since_last_agent_comment
+
+        mock_client = MagicMock()
+        now = datetime.now(timezone.utc)
+        two_days_ago = now.replace(
+            day=now.day,  # just use isoformat
+        )
+        comment = MagicMock()
+        comment.body = "[Epic Agent] Please add more detail."
+        comment.created = two_days_ago.isoformat()
+        mock_issue = MagicMock()
+        mock_issue.fields.comment.comments = [comment]
+        mock_client.issue.return_value = mock_issue
+
+        result = days_since_last_agent_comment(
+            mock_client, "CNV-100",
+        )
+        assert result is not None
+        assert result < 1.0
+
+    def test_picks_most_recent_agent_comment(self):
+        from unittest.mock import MagicMock
+        from agent.jira.client import days_since_last_agent_comment
+
+        mock_client = MagicMock()
+        old_comment = MagicMock()
+        old_comment.body = "[Epic Agent] Old reminder."
+        old_comment.created = "2025-01-01T00:00:00.000+0000"
+        new_comment = MagicMock()
+        new_comment.body = "[Epic Agent] Recent reminder."
+        new_comment.created = "2026-05-04T00:00:00.000+0000"
+        mock_issue = MagicMock()
+        mock_issue.fields.comment.comments = [
+            old_comment, new_comment,
+        ]
+        mock_client.issue.return_value = mock_issue
+
+        result = days_since_last_agent_comment(
+            mock_client, "CNV-100",
+        )
+        assert result is not None
+        assert result < 400
+
+
 class TestFingerprintFormat:
     def test_create_obs_story_embeds_fingerprint(self):
         """Verify create_obs_story embeds a parseable fingerprint."""
@@ -1066,12 +1222,20 @@ class TestBuildEpicJql:
         assert '"Target Version" = "4.22.0"' in jql
         assert 'labels = "gpu"' in jql
 
+    def test_skip_label_excluded_by_default(self):
+        jql = build_epic_jql(self._CFG)
+        assert 'labels != "cnv-grooming-agent-skip"' in jql
+
+    def test_skip_label_from_config(self):
+        cfg = {**self._CFG, "grooming": {"skip_label": "my-skip"}}
+        jql = build_epic_jql(cfg)
+        assert 'labels != "my-skip"' in jql
+
     def test_no_filters_no_extra_clauses(self):
         jql = build_epic_jql(self._CFG)
         assert "component" not in jql
         assert "fixVersion" not in jql
         assert "Target Version" not in jql
-        assert "labels" not in jql
 
 
 class TestNeedsGrooming:
