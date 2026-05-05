@@ -12,6 +12,15 @@ import re
 
 import mistune
 
+# Matches the epic-section ## headings produced by the runner:
+# - "[CNV-12345](url) — summary text"  (epic detail sections)
+# - "Summary"                           (the top-level summary section)
+# - "CNV-12345 — ..."                  (no-version fallback)
+_EPIC_HEADING_RE = re.compile(
+    r"^(\[CNV-\d+\]|CNV-\d+\b|Summary$)",
+    re.IGNORECASE,
+)
+
 # ─── Status badge colours ──────────────────────────────────────────────────
 
 _BADGE_CLASSES: dict[str, str] = {
@@ -51,6 +60,7 @@ body {
 h1 { font-size: 1.7em; border-bottom: 2px solid #e1e4e8; padding-bottom: 8px; }
 h2 { font-size: 1.25em; margin-top: 28px; color: #24292f; }
 h3 { font-size: 1.05em; margin-top: 20px; color: #444; }
+h4 { font-size: 0.95em; margin-top: 14px; color: #555; font-weight: 600; }
 hr { border: none; border-top: 1px solid #e1e4e8; margin: 24px 0; }
 a { color: #0969da; text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -133,19 +143,27 @@ class _EpicRenderer(mistune.HTMLRenderer):
     def heading(self, text: str, level: int, **attrs) -> str:
         if level == 1:
             return f"<h1>{text}</h1>\n"
+        if level == 2:
+            # Strip HTML tags from text for the pattern match so that
+            # anchor tags around the epic key don't break the regex.
+            plain = re.sub(r"<[^>]+>", "", text)
+            if _EPIC_HEADING_RE.match(plain.strip()):
+                # Top-level epic / summary section → collapsible block
+                prefix = "</div></details>\n" if self._in_section else ""
+                self._in_section = True
+                summary_text = _badges_in_heading(text)
+                return (
+                    f"{prefix}"
+                    f'<details open>\n'
+                    f"<summary>{summary_text}</summary>\n"
+                    f'<div class="details-body">\n'
+                )
+            # Sub-headings inside story descriptions (e.g. "Why this
+            # matters") — render as <h4> so they stay visually nested
+            # inside the current collapsible section.
+            return f"<h4>{text}</h4>\n"
         if level == 3:
             return f"<h3>{text}</h3>\n"
-        if level == 2:
-            # Close previous epic section if open
-            prefix = "</div></details>\n" if self._in_section else ""
-            self._in_section = True
-            summary_text = _badges_in_heading(text)
-            return (
-                f"{prefix}"
-                f'<details open>\n'
-                f"<summary>{summary_text}</summary>\n"
-                f'<div class="details-body">\n'
-            )
         return f"<h{level}>{text}</h{level}>\n"
 
 
