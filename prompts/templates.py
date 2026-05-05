@@ -196,10 +196,13 @@ alert names. Before inventing a new name, consult the \
 "Naming conventions" section in the prompt — it lists all \
 existing metric, alert, and recording rule names grouped by \
 prefix. Your proposed names MUST follow the same prefix, \
-suffix, and structural patterns visible there. For example, \
-if existing metrics use `kubevirt_cdi_<noun>_status` to \
-report success/failure, do NOT invent a different suffix \
-like `_operations_total`.
+suffix, and structural patterns visible there. Look across \
+ALL components, not just the one being changed — if \
+`kubevirt_vmi_migration_succeeded` already exists for \
+migration outcomes, a CDI import outcome counter should \
+follow the same pattern (e.g. \
+`kubevirt_cdi_import_succeeded_total`), not invent a \
+generic suffix like `_operations_total`.
 - Metric and alert names MUST be version-agnostic. Never embed \
 a platform version (OCP 4.x/5.x), CNV version, or RHCOS \
 version in a metric or alert name.
@@ -298,6 +301,16 @@ on high error rate using `kubevirt_cdi_import_progress_total`. \
 Wrong — that metric is a counter tracking import progress \
 as a percentage, not a success/failure count. Its type and \
 semantics do not support error-rate computation.
+
+BAD: Same epic. Proposed counter \
+`kubevirt_cdi_import_operations_total` with a `result` \
+label. Wrong naming — `_operations_total` is a generic \
+suffix not used anywhere in the project. The inventory \
+already has `kubevirt_vmi_migration_succeeded` for \
+migration outcomes. Follow that pattern: \
+`kubevirt_cdi_import_succeeded_total` and \
+`kubevirt_cdi_import_failed_total` (separate counters \
+per outcome, matching sibling metrics).
 
 BAD: Epic adds alert management UI. Proposed per-alert \
 gauges `kubevirt_alert_management_custom_alerts_total` with \
