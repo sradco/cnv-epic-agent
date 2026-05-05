@@ -912,7 +912,7 @@ def run(
 
     run_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-    report_lines: list[str] = [
+    header_lines: list[str] = [
         f"# Epic Agent Run ({'APPLY' if apply else 'DRY-RUN'})",
         "",
         f"- **Date:** {run_timestamp}",
@@ -926,6 +926,7 @@ def run(
         "",
     ]
 
+    epic_detail_lines: list[str] = []
     for epic_issue in epics_to_process:
         epic_lines = _process_epic(
             epic_issue, ctx, app_cfg, inv,
@@ -934,12 +935,10 @@ def run(
             use_llm=use_llm,
             estimate_existing=estimate_existing,
         )
-        report_lines.extend(epic_lines)
+        epic_detail_lines.extend(epic_lines)
 
-    report_lines.extend(
-        _build_report_summary(
-            ctx.counters, len(epics_to_process), apply,
-        )
+    summary_lines = _build_report_summary(
+        ctx.counters, len(epics_to_process), apply,
     )
 
-    return "\n".join(report_lines)
+    return "\n".join(header_lines + summary_lines + epic_detail_lines)
