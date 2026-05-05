@@ -855,6 +855,15 @@ def _process_epic(
         tally=tally,
     )
 
+    # If all proposed stories were skipped as dups (nothing created,
+    # no error), the tally still has no status.  Mark as nothing to do
+    # so the epic appears correctly in both summary tables.
+    if not tally.status:
+        ctx.counters.skipped_epics += 1
+        ctx.counters.record_epic_status(
+            epic_key, STATUS_NOTHING_TO_DO,
+        )
+
     lines = epic_header + story_lines
 
     if estimate_existing and use_llm:
