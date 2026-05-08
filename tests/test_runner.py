@@ -1370,9 +1370,8 @@ class TestBuildReportSummaryTwoTables:
         lines = _build_report_summary(c, 1, apply=False)
         text = "\n".join(lines)
         # Unversioned epics go into the "Unversioned Epics" table
+        # which has no version column — only SP columns.
         assert "Unversioned Epics" in text
-        assert "Fix Ver" in text
-        assert "Target Ver" in text
         assert "Dev SP" in text
         assert "QE SP" in text
         assert "Docs SP" in text
@@ -1415,14 +1414,23 @@ class TestBuildReportSummaryTwoTables:
 
     def test_version_fields_shown(self):
         from agent.runner import _EpicTally, _build_report_summary
-        t = _EpicTally("CNV-500", status="groomed")
-        t.fix_version = "CNV 5.0"
-        t.target_version = "CNV v5.0.0"
-        c = self._make_counters([t])
-        lines = _build_report_summary(c, 1, apply=False)
-        text = "\n".join(lines)
-        assert "CNV 5.0" in text
-        assert "CNV v5.0.0" in text
+        # fix_version → Fix Version Epics table (shows Fix Ver column)
+        t1 = _EpicTally("CNV-501", status="groomed")
+        t1.fix_version = "CNV 5.0"
+        c1 = self._make_counters([t1])
+        text1 = "\n".join(_build_report_summary(c1, 1, apply=False))
+        assert "Fix Ver" in text1
+        assert "CNV 5.0" in text1
+        assert "Target Ver" not in text1
+
+        # target_version → Target Version Epics table (shows Target Ver)
+        t2 = _EpicTally("CNV-502", status="groomed")
+        t2.target_version = "CNV v5.0.0"
+        c2 = self._make_counters([t2])
+        text2 = "\n".join(_build_report_summary(c2, 1, apply=False))
+        assert "Target Ver" in text2
+        assert "CNV v5.0.0" in text2
+        assert "Fix Ver" not in text2
 
     def test_no_version_shows_dash(self):
         from agent.runner import _EpicTally, _build_report_summary
@@ -1430,10 +1438,12 @@ class TestBuildReportSummaryTwoTables:
         c = self._make_counters([t])
         lines = _build_report_summary(c, 1, apply=False)
         text = "\n".join(lines)
-        # Both fix and target version default to "-"; row has
-        # "| epic | summary | status | - | - | ..." format
-        assert "| - | - |" in text
+        # Unversioned table has no version column; neither "Fix Ver"
+        # nor "Target Ver" should appear, and there is no "| - | - |"
+        # version pair cell.
         assert "Unversioned Epics" in text
+        assert "Fix Ver" not in text
+        assert "Target Ver" not in text
 
     def test_epic_key_linked_in_both_tables(self):
         from agent.runner import _EpicTally, _build_report_summary

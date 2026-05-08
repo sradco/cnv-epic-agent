@@ -288,16 +288,22 @@ def _dedup_and_create(
             else:
                 tally.dev_sp_proposed += sp
 
-        # Apply the configurable prefix to the Jira summary so
-        # agent-generated stories are easy to spot in the epic view.
+        # Apply a category-aware prefix so agent stories are easy to
+        # spot in the epic view. The base prefix comes from config;
+        # a category tag is appended per story type.
         # The prefix is NOT applied before the dedup check so existing
         # stories without the prefix are still matched correctly.
-        prefix = ctx.cfg.get("creation", {}).get(
+        base_prefix = ctx.cfg.get("creation", {}).get(
             "story_summary_prefix", "[agent]",
         )
-        display_summary = (
-            f"{prefix} {story.summary}" if prefix else story.summary
-        )
+        _CAT_TAG: dict[str, str] = {
+            "qe": "[QE]",
+            "docs": "[Docs]",
+            "documentation": "[Docs]",
+        }
+        cat_tag = _CAT_TAG.get(story.category or "", "[Obs]")
+        full_prefix = f"{base_prefix}{cat_tag}" if base_prefix else cat_tag
+        display_summary = f"{full_prefix} {story.summary}"
 
         if ctx.apply and ctx.version:
             try:
@@ -997,12 +1003,7 @@ def _build_report_summary(
             key=lambda t: (_STATUS_ORDER.get(t.status, 5), t.key),
         )
 
-        def _planning_row(tally: _EpicTally) -> str:
-            anchor = _epic_anchor(tally.key)
-            link = f"[{tally.key}](#{anchor})"
-            status = tally.status or ""
-            fix_ver = tally.fix_version or "-"
-            target_ver = tally.target_version or "-"
+        def _sp_cols(tally: _EpicTally) -> str:
             dev_sp = _sp_cell(
                 tally.dev_sp_existing, tally.dev_sp_proposed,
             )
@@ -1018,13 +1019,9 @@ def _build_report_summary(
                     tally.docs_sp_existing, tally.docs_sp_proposed,
                 )
             )
-            summary = tally.summary or ""
-            return (
-                f"| {link} | {summary} | {status} | {fix_ver}"
-                f" | {target_ver} | {dev_sp} | {qe_sp} | {docs_sp} |"
-            )
+            return f"{dev_sp} | {qe_sp} | {docs_sp}"
 
-        def _planning_totals(tallies: list[_EpicTally]) -> str:
+        def _sp_totals(tallies: list[_EpicTally]) -> str:
             dev_ex = sum(t.dev_sp_existing for t in tallies)
             dev_pr = sum(t.dev_sp_proposed for t in tallies)
             qe_ex = sum(
@@ -1040,48 +1037,80 @@ def _build_report_summary(
                 t.docs_sp_proposed for t in tallies if not t.has_no_doc
             )
             return (
-                f"| **Total** | | | | | {_sp_cell(dev_ex, dev_pr)}"
+                f"{_sp_cell(dev_ex, dev_pr)}"
                 f" | {_sp_cell(qe_ex, qe_pr)}"
-                f" | {_sp_cell(docs_ex, docs_pr)} |"
+                f" | {_sp_cell(docs_ex, docs_pr)}"
             )
 
-        _PLANNING_HEADER = (
-            "| Epic | Summary | Status | Fix Ver | Target Ver"
-            " | Dev SP | QE SP | Docs SP |"
-        )
-        _PLANNING_SEP = "| --- | --- | --- | --- | --- | --- | --- | --- |"
-
         # ── Table 1a: Fix Version Epics ───────────────────────────────
+        # Shows only the Fix Ver column (Target Ver omitted).
         if fix_ver_tallies:
             lines.append("### Fix Version Epics")
             lines.append("")
-            lines.append(_PLANNING_HEADER)
-            lines.append(_PLANNING_SEP)
+            lines.append(
+                "| Epic | Summary | Status | Fix Ver"
+                " | Dev SP | QE SP | Docs SP |"
+            )
+            lines.append("| --- | --- | --- | --- | --- | --- | --- |")
             for tally in fix_ver_tallies:
-                lines.append(_planning_row(tally))
-            lines.append(_planning_totals(fix_ver_tallies))
+                anchor = _epic_anchor(tally.key)
+                link = f"[{tally.key}](#{anchor})"
+                lines.append(
+                    f"| {link} | {tally.summary or ''}"
+                    f" | {tally.status or ''}"
+                    f" | {tally.fix_version or '-'}"
+                    f" | {_sp_cols(tally)} |"
+                )
+            lines.append(
+                f"| **Total** | | | | {_sp_totals(fix_ver_tallies)} |"
+            )
             lines.append("")
 
         # ── Table 1b: Target Version Epics ───────────────────────────
+        # Shows only the Target Ver column (Fix Ver omitted).
         if target_ver_tallies:
             lines.append("### Target Version Epics")
             lines.append("")
-            lines.append(_PLANNING_HEADER)
-            lines.append(_PLANNING_SEP)
+            lines.append(
+                "| Epic | Summary | Status | Target Ver"
+                " | Dev SP | QE SP | Docs SP |"
+            )
+            lines.append("| --- | --- | --- | --- | --- | --- | --- |")
             for tally in target_ver_tallies:
-                lines.append(_planning_row(tally))
-            lines.append(_planning_totals(target_ver_tallies))
+                anchor = _epic_anchor(tally.key)
+                link = f"[{tally.key}](#{anchor})"
+                lines.append(
+                    f"| {link} | {tally.summary or ''}"
+                    f" | {tally.status or ''}"
+                    f" | {tally.target_version or '-'}"
+                    f" | {_sp_cols(tally)} |"
+                )
+            lines.append(
+                f"| **Total** | | | | {_sp_totals(target_ver_tallies)} |"
+            )
             lines.append("")
 
         # ── Table 1c: Unversioned Epics ──────────────────────────────
+        # No version column shown.
         if unversioned_tallies:
             lines.append("### Unversioned Epics")
             lines.append("")
-            lines.append(_PLANNING_HEADER)
-            lines.append(_PLANNING_SEP)
+            lines.append(
+                "| Epic | Summary | Status"
+                " | Dev SP | QE SP | Docs SP |"
+            )
+            lines.append("| --- | --- | --- | --- | --- | --- |")
             for tally in unversioned_tallies:
-                lines.append(_planning_row(tally))
-            lines.append(_planning_totals(unversioned_tallies))
+                anchor = _epic_anchor(tally.key)
+                link = f"[{tally.key}](#{anchor})"
+                lines.append(
+                    f"| {link} | {tally.summary or ''}"
+                    f" | {tally.status or ''}"
+                    f" | {_sp_cols(tally)} |"
+                )
+            lines.append(
+                f"| **Total** | | | {_sp_totals(unversioned_tallies)} |"
+            )
             lines.append("")
 
         # ── Table 2: Agent Proposed Stories ──────────────────────────

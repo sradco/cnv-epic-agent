@@ -299,7 +299,7 @@ agent:
       trigger: "Epic changes user-facing behavior, APIs, CLI, or UI"
       story_prefix: "[Docs]"
     qe:
-      trigger: "Epic has observability child stories or introduces runtime changes that need verification"
+      trigger: "Epic introduces new metrics, alerts, or dashboards (existing or proposed in this run) that need verification"
       story_prefix: "[QE]"
   story_points:
     enabled: true

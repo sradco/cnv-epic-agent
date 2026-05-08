@@ -346,6 +346,11 @@ Only propose runbook docs work for **new** alerts that \
 are NOT in that list. If the alert already has a runbook, \
 the docs team only needs to review it if the alert \
 expression or semantics changed — not for every run.
+- REQUIRED: When this response proposes any new alerts — \
+whether from gap analysis or from your own proposals — you \
+MUST also propose a docs story for the runbook review of \
+those alerts. Treat your own proposed alerts as "new alerts" \
+that need runbook documentation.
 - Description format: a short plain-text paragraph describing \
 what needs to be documented, followed by an acceptance \
 criteria checklist. Nothing else. Do NOT add sections like \
@@ -357,7 +362,8 @@ _QE_RULES = """\
 QE story rules:
 - Take a QE engineer role. Split by test type / scope. \
 Group same-type tests into one story. Reference child \
-story keys.
+story keys (or your own proposed story summaries when the \
+child stories do not yet exist in Jira).
 - Description format: a checklist of specific test cases \
 to verify. Nothing else. Do NOT add sections like \
 "Why this is needed", "Proposed changes", "Who benefits", \
@@ -367,6 +373,12 @@ to verify. Nothing else. Do NOT add sections like \
 and upgrade/rollback verification. Renamed metrics need a \
 story to update existing tests. Only propose unit tests for \
 genuinely new metrics/alerts.
+- REQUIRED: When this response proposes any new metrics or \
+alerts — whether from gap analysis or from your own \
+observability proposals — you MUST also propose QE stories \
+to verify them. Do not skip QE because the observability \
+stories are not yet in Jira; treat your own proposals as \
+planned work that needs test coverage.
 - Test categories: metric unit tests (new only), alert rule \
 tests (new only), dashboard verification, end-to-end pipeline, \
 upgrade/rollback verification.
