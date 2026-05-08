@@ -301,9 +301,11 @@ def _dedup_and_create(
             "docs": "[Docs]",
             "documentation": "[Docs]",
         }
-        cat_tag = _CAT_TAG.get(story.category or "", "[Obs]")
-        full_prefix = f"{base_prefix}{cat_tag}" if base_prefix else cat_tag
-        display_summary = f"{full_prefix} {story.summary}"
+        cat_tag = _CAT_TAG.get(story.category or "", "")
+        full_prefix = (
+            f"{base_prefix}{cat_tag}" if base_prefix else cat_tag
+        )
+        display_summary = f"{full_prefix} {story.summary}".strip()
 
         if ctx.apply and ctx.version:
             try:
