@@ -1447,6 +1447,34 @@ class TestBuildReportSummaryTwoTables:
         assert "Fix Ver" not in text
         assert "Target Ver" not in text
 
+    def test_observability_rollup_column_present(self):
+        """observability column sums metrics+alerts+dashboards+telemetry."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t = _EpicTally("CNV-900", status="groomed")
+        t.by_category = {"metrics": 2, "alerts": 1, "qe": 1}
+        c = _RunCounters()
+        c.epic_tallies = [t]
+        c.by_category = {"metrics": 2, "alerts": 1, "qe": 1}
+        c.created = 4
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "observability" in text
+        # rollup = metrics(2) + alerts(1) = 3
+        assert "3" in text
+
+    def test_observability_rollup_absent_when_no_obs_cats(self):
+        """No rollup column when only qe/docs categories present."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t = _EpicTally("CNV-901", status="groomed")
+        t.by_category = {"qe": 2, "docs": 1}
+        c = _RunCounters()
+        c.epic_tallies = [t]
+        c.by_category = {"qe": 2, "docs": 1}
+        c.created = 3
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "observability" not in text
+
     def test_epic_key_linked_in_both_tables(self):
         from agent.runner import _EpicTally, _build_report_summary
         t = _EpicTally("CNV-700", status="groomed")

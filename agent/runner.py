@@ -55,6 +55,11 @@ STATUS_NOTHING_TO_DO = "nothing to do"
 STATUS_ERROR = "error"
 STATUS_LLM_ERROR = "llm error"
 
+# Categories that roll up into the "observability" summary column.
+_OBS_SUBCATEGORIES: frozenset[str] = frozenset(
+    {"metrics", "alerts", "dashboards", "telemetry"}
+)
+
 _STATUS_ORDER = {
     STATUS_ERROR: 0,
     STATUS_LLM_ERROR: 1,
@@ -1225,43 +1230,71 @@ def _build_report_summary(
 
         # ── Table 2: Agent Proposed Stories ──────────────────────────
         all_cats = sorted(counters.by_category)
+        # Observability rollup: sum of metrics+alerts+dashboards+telemetry
+        obs_cats_present = [
+            c for c in all_cats if c in _OBS_SUBCATEGORIES
+        ]
+        show_obs_rollup = len(obs_cats_present) > 0
+
         lines.append("### Agent Proposed Stories")
         lines.append("")
         if all_cats:
+            obs_col = "observability | " if show_obs_rollup else ""
             cat_headers = " | ".join(all_cats)
+            obs_sep = "--- | " if show_obs_rollup else ""
             cat_sep = " | ".join("---" for _ in all_cats)
             lines.append(
-                f"| Epic | Summary | Status | {cat_headers} | Total |"
+                f"| Epic | Summary | Status | {obs_col}"
+                f"{cat_headers} | Total |"
             )
-            lines.append(f"| --- | --- | --- | {cat_sep} | --- |")
+            lines.append(
+                f"| --- | --- | --- | {obs_sep}{cat_sep} | --- |"
+            )
         else:
             lines.append("| Epic | Summary | Status | Total |")
             lines.append("| --- | --- | --- | --- |")
+
         for tally in sorted_tallies:
             anchor = _epic_anchor(tally.key)
             link = f"[{tally.key}](#{anchor})"
             summary = tally.summary or ""
             status = tally.status or ""
             if all_cats:
+                obs_count = sum(
+                    tally.by_category.get(c, 0)
+                    for c in obs_cats_present
+                )
+                obs_col_val = (
+                    f"{obs_count} | " if show_obs_rollup else ""
+                )
                 cols = " | ".join(
                     str(tally.by_category.get(c, 0))
                     for c in all_cats
                 )
                 lines.append(
                     f"| {link} | {summary} | {status}"
-                    f" | {cols} | {tally.total} |"
+                    f" | {obs_col_val}{cols} | {tally.total} |"
                 )
             else:
                 lines.append(
                     f"| {link} | {summary} | {status} | {tally.total} |"
                 )
+
         if all_cats:
+            obs_total = sum(
+                counters.by_category.get(c, 0)
+                for c in obs_cats_present
+            )
+            obs_total_val = (
+                f"{obs_total} | " if show_obs_rollup else ""
+            )
             total_cols = " | ".join(
                 str(counters.by_category.get(c, 0))
                 for c in all_cats
             )
             lines.append(
-                f"| **Total** | | | {total_cols} | {counters.created} |"
+                f"| **Total** | | | {obs_total_val}"
+                f"{total_cols} | {counters.created} |"
             )
         else:
             lines.append(
