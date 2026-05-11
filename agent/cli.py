@@ -237,7 +237,11 @@ def main() -> None:
             save_plan_path=save_plan_path,
         )
 
+    # Auto-detect html format from the output filename extension so
+    # --format html is not needed when --output ends with .html.
     output_format = args.format
+    if args.output and os.path.splitext(args.output)[1].lower() == ".html":
+        output_format = "html"
 
     if output_format == "html":
         from agent.export.html_report import markdown_to_html
