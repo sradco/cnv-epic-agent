@@ -104,6 +104,7 @@ class _EpicTally:
         "qe_sp_existing", "qe_sp_proposed",
         "docs_sp_existing", "docs_sp_proposed",
         "has_no_qe", "has_no_doc",
+        "components",
     )
 
     def __init__(
@@ -123,6 +124,7 @@ class _EpicTally:
         self.docs_sp_proposed: int = 0
         self.has_no_qe: bool = False
         self.has_no_doc: bool = False
+        self.components: list[str] = []
 
     def record(self, category: str) -> None:
         self.by_category[category] = (
@@ -826,6 +828,7 @@ def _process_epic(
     epic_header.append(f'<a id="{_epic_anchor(epic_key)}"></a>')
     epic_header.append(f"## {epic_link} — {epic.summary}")
     epic_components = result.get("epic_components", [])
+    tally.components = epic_components
     if epic_components:
         epic_header.append(
             f"Components: {', '.join(epic_components)}"
@@ -1094,29 +1097,40 @@ def _build_report_summary(
         # 1. Has fixVersion  → "Fix Version Epics"
         # 2. No fixVersion, has targetVersion → "Target Version Epics"
         # 3. Neither → "Unversioned Epics"
-        def _version_sort_key(t: _EpicTally) -> tuple:
-            return (_STATUS_ORDER.get(t.status, 5), t.key)
+        def _tally_sort_key(t: _EpicTally) -> tuple:
+            # Primary: first component name (alphabetical), empty sorts last.
+            comp = t.components[0] if t.components else "\xff"
+            return (comp, _STATUS_ORDER.get(t.status, 5), t.key)
 
         fix_ver_tallies = sorted(
             [t for t in counters.epic_tallies if t.fix_version],
-            key=_version_sort_key,
+            key=_tally_sort_key,
         )
         target_ver_tallies = sorted(
             [t for t in counters.epic_tallies
              if not t.fix_version and t.target_version],
-            key=_version_sort_key,
+            key=_tally_sort_key,
         )
         unversioned_tallies = sorted(
             [t for t in counters.epic_tallies
              if not t.fix_version and not t.target_version],
-            key=_version_sort_key,
+            key=_tally_sort_key,
         )
 
-        # Status-first order for Table 2 (all epics)
+        # Component-first order for Table 2 (all epics)
         sorted_tallies = sorted(
             counters.epic_tallies,
-            key=lambda t: (_STATUS_ORDER.get(t.status, 5), t.key),
+            key=_tally_sort_key,
         )
+
+        # Show Component column only when >1 distinct component is present.
+        all_components: set[str] = set()
+        for t in counters.epic_tallies:
+            all_components.update(t.components)
+        show_component_col = len(all_components) > 1
+
+        def _comp_cell(tally: _EpicTally) -> str:
+            return ", ".join(tally.components) if tally.components else ""
 
         def _sp_cols(tally: _EpicTally) -> str:
             dev_sp = _sp_cell(
@@ -1157,27 +1171,32 @@ def _build_report_summary(
                 f" | {_sp_cell(docs_ex, docs_pr)}"
             )
 
+        comp_h = " | Component" if show_component_col else ""
+        comp_s = " | ---" if show_component_col else ""
+        comp_blank = " |" if show_component_col else ""
+
         # ── Table 1a: Fix Version Epics ───────────────────────────────
         # Shows only the Fix Ver column (Target Ver omitted).
         if fix_ver_tallies:
             lines.append("### Fix Version Epics")
             lines.append("")
             lines.append(
-                "| Epic | Summary | Status | Fix Ver"
+                f"| Epic | Summary | Status | Fix Ver{comp_h}"
                 " | Dev SP | QE SP | Docs SP |"
             )
-            lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+            lines.append(f"| --- | --- | --- | ---{comp_s} | --- | --- | --- |")
             for tally in fix_ver_tallies:
                 anchor = _epic_anchor(tally.key)
                 link = f"[{tally.key}](#{anchor})"
+                comp_v = f" | {_comp_cell(tally)}" if show_component_col else ""
                 lines.append(
                     f"| {link} | {tally.summary or ''}"
                     f" | {tally.status or ''}"
                     f" | {tally.fix_version or '-'}"
-                    f" | {_sp_cols(tally)} |"
+                    f"{comp_v} | {_sp_cols(tally)} |"
                 )
             lines.append(
-                f"| **Total** | | | | {_sp_totals(fix_ver_tallies)} |"
+                f"| **Total** | | | {comp_blank} | {_sp_totals(fix_ver_tallies)} |"
             )
             lines.append("")
 
@@ -1187,21 +1206,22 @@ def _build_report_summary(
             lines.append("### Target Version Epics")
             lines.append("")
             lines.append(
-                "| Epic | Summary | Status | Target Ver"
+                f"| Epic | Summary | Status | Target Ver{comp_h}"
                 " | Dev SP | QE SP | Docs SP |"
             )
-            lines.append("| --- | --- | --- | --- | --- | --- | --- |")
+            lines.append(f"| --- | --- | --- | ---{comp_s} | --- | --- | --- |")
             for tally in target_ver_tallies:
                 anchor = _epic_anchor(tally.key)
                 link = f"[{tally.key}](#{anchor})"
+                comp_v = f" | {_comp_cell(tally)}" if show_component_col else ""
                 lines.append(
                     f"| {link} | {tally.summary or ''}"
                     f" | {tally.status or ''}"
                     f" | {tally.target_version or '-'}"
-                    f" | {_sp_cols(tally)} |"
+                    f"{comp_v} | {_sp_cols(tally)} |"
                 )
             lines.append(
-                f"| **Total** | | | | {_sp_totals(target_ver_tallies)} |"
+                f"| **Total** | | | {comp_blank} | {_sp_totals(target_ver_tallies)} |"
             )
             lines.append("")
 
@@ -1211,20 +1231,21 @@ def _build_report_summary(
             lines.append("### Unversioned Epics")
             lines.append("")
             lines.append(
-                "| Epic | Summary | Status"
+                f"| Epic | Summary | Status{comp_h}"
                 " | Dev SP | QE SP | Docs SP |"
             )
-            lines.append("| --- | --- | --- | --- | --- | --- |")
+            lines.append(f"| --- | --- | ---{comp_s} | --- | --- | --- |")
             for tally in unversioned_tallies:
                 anchor = _epic_anchor(tally.key)
                 link = f"[{tally.key}](#{anchor})"
+                comp_v = f" | {_comp_cell(tally)}" if show_component_col else ""
                 lines.append(
                     f"| {link} | {tally.summary or ''}"
                     f" | {tally.status or ''}"
-                    f" | {_sp_cols(tally)} |"
+                    f"{comp_v} | {_sp_cols(tally)} |"
                 )
             lines.append(
-                f"| **Total** | | | {_sp_totals(unversioned_tallies)} |"
+                f"| **Total** | |{comp_blank} | {_sp_totals(unversioned_tallies)} |"
             )
             lines.append("")
 
@@ -1240,25 +1261,32 @@ def _build_report_summary(
         lines.append("")
         if all_cats:
             obs_col = "observability | " if show_obs_rollup else ""
+            comp_col2 = "Component | " if show_component_col else ""
             cat_headers = " | ".join(all_cats)
             obs_sep = "--- | " if show_obs_rollup else ""
+            comp_sep2 = "--- | " if show_component_col else ""
             cat_sep = " | ".join("---" for _ in all_cats)
             lines.append(
-                f"| Epic | Summary | Status | {obs_col}"
+                f"| Epic | Summary | Status | {comp_col2}{obs_col}"
                 f"{cat_headers} | Total |"
             )
             lines.append(
-                f"| --- | --- | --- | {obs_sep}{cat_sep} | --- |"
+                f"| --- | --- | --- | {comp_sep2}{obs_sep}{cat_sep} | --- |"
             )
         else:
-            lines.append("| Epic | Summary | Status | Total |")
-            lines.append("| --- | --- | --- | --- |")
+            comp_col2 = "Component | " if show_component_col else ""
+            comp_sep2 = "--- | " if show_component_col else ""
+            lines.append(f"| Epic | Summary | Status | {comp_col2}Total |")
+            lines.append(f"| --- | --- | --- | {comp_sep2}--- |")
 
         for tally in sorted_tallies:
             anchor = _epic_anchor(tally.key)
             link = f"[{tally.key}](#{anchor})"
             summary = tally.summary or ""
             status = tally.status or ""
+            comp_v2 = (
+                f" | {_comp_cell(tally)}" if show_component_col else ""
+            )
             if all_cats:
                 obs_count = sum(
                     tally.by_category.get(c, 0)
@@ -1273,11 +1301,12 @@ def _build_report_summary(
                 )
                 lines.append(
                     f"| {link} | {summary} | {status}"
-                    f" | {obs_col_val}{cols} | {tally.total} |"
+                    f"{comp_v2} | {obs_col_val}{cols} | {tally.total} |"
                 )
             else:
                 lines.append(
-                    f"| {link} | {summary} | {status} | {tally.total} |"
+                    f"| {link} | {summary} | {status}"
+                    f"{comp_v2} | {tally.total} |"
                 )
 
         if all_cats:
@@ -1288,17 +1317,19 @@ def _build_report_summary(
             obs_total_val = (
                 f"{obs_total} | " if show_obs_rollup else ""
             )
+            comp_blank2 = " |" if show_component_col else ""
             total_cols = " | ".join(
                 str(counters.by_category.get(c, 0))
                 for c in all_cats
             )
             lines.append(
-                f"| **Total** | | | {obs_total_val}"
+                f"| **Total** | |{comp_blank2} | {obs_total_val}"
                 f"{total_cols} | {counters.created} |"
             )
         else:
+            comp_blank2 = " |" if show_component_col else ""
             lines.append(
-                f"| **Total** | | | {counters.created} |"
+                f"| **Total** | |{comp_blank2} | {counters.created} |"
             )
         lines.append("")
 

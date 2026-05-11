@@ -1447,6 +1447,44 @@ class TestBuildReportSummaryTwoTables:
         assert "Fix Ver" not in text
         assert "Target Ver" not in text
 
+    def test_component_col_shown_when_multiple_components(self):
+        """Component column appears when >1 distinct component present."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t1 = _EpicTally("CNV-100", status="groomed")
+        t1.components = ["CNV Install, Upgrade and Operators"]
+        t2 = _EpicTally("CNV-101", status="groomed")
+        t2.components = ["CNV User Interface"]
+        c = _RunCounters()
+        c.epic_tallies = [t1, t2]
+        lines = _build_report_summary(c, 2, apply=False)
+        text = "\n".join(lines)
+        assert "Component" in text
+        assert "CNV Install, Upgrade and Operators" in text
+        assert "CNV User Interface" in text
+
+    def test_component_col_hidden_when_single_component(self):
+        """Component column is omitted when all epics share one component."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t1 = _EpicTally("CNV-200", status="groomed")
+        t1.components = ["CNV Install, Upgrade and Operators"]
+        t2 = _EpicTally("CNV-201", status="groomed")
+        t2.components = ["CNV Install, Upgrade and Operators"]
+        c = _RunCounters()
+        c.epic_tallies = [t1, t2]
+        lines = _build_report_summary(c, 2, apply=False)
+        text = "\n".join(lines)
+        assert "Component" not in text
+
+    def test_component_col_hidden_when_no_components(self):
+        """Component column is omitted when no component data is set."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t = _EpicTally("CNV-300", status="groomed")
+        c = _RunCounters()
+        c.epic_tallies = [t]
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "Component" not in text
+
     def test_observability_rollup_column_present(self):
         """observability column sums metrics+alerts+dashboards+telemetry."""
         from agent.runner import _EpicTally, _RunCounters, _build_report_summary
