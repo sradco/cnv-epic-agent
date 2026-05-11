@@ -124,10 +124,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--save-plan",
+        nargs="?",
+        const="",
         default=None,
         metavar="FILE",
         help=(
-            "Dry-run only: save proposed stories to FILE as JSON. "
+            "Dry-run only: save proposed stories as JSON. "
+            "Omit FILE to auto-name as plan-<timestamp>.json. "
             "The plan can be reviewed/edited and later applied with "
             "--apply-plan without re-running the LLM."
         ),
@@ -152,11 +155,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--output", "-o",
+        nargs="?",
+        const="",
         default=None,
         help=(
             "Write report to a file (in addition to stdout). "
-            "A UTC timestamp is appended before the extension, "
-            "e.g. report-20260505-120000.md (or .html with --format html)"
+            "Omit the filename to auto-name as report-<timestamp>.md "
+            "(or .html when --format html is set or filename ends in .html). "
+            "A UTC timestamp is always appended before the extension."
         ),
     )
     parser.add_argument(
@@ -194,6 +200,8 @@ def main() -> None:
 
     from agent.runner import apply_plan, run
 
+    _run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
     if args.apply_plan:
         report = apply_plan(
             args.apply_plan,
@@ -207,17 +215,17 @@ def main() -> None:
         )
 
         save_plan_path: str | None = None
-        if args.save_plan:
+        if args.save_plan is not None:
             if args.apply:
                 parser.error(
                     "--save-plan is for dry-run mode; "
                     "remove --apply or use --apply-plan instead."
                 )
-            base, _ext = os.path.splitext(args.save_plan)
-            timestamp = datetime.now(timezone.utc).strftime(
-                "%Y%m%d-%H%M%S"
-            )
-            save_plan_path = f"{base}-{timestamp}.json"
+            if args.save_plan:
+                base, _ext = os.path.splitext(args.save_plan)
+                save_plan_path = f"{base}-{_run_timestamp}.json"
+            else:
+                save_plan_path = f"plan-{_run_timestamp}.json"
 
         report = run(
             epic_keys=args.epic,
@@ -251,11 +259,14 @@ def main() -> None:
 
     print(rendered)
 
-    if args.output:
-        base, _ext = os.path.splitext(args.output)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    if args.output is not None:
+        # args.output is "" when --output is given without a filename.
         ext = ".html" if output_format == "html" else ".md"
-        output_path = f"{base}-{timestamp}{ext}"
+        if args.output:
+            base, _ext = os.path.splitext(args.output)
+            output_path = f"{base}-{_run_timestamp}{ext}"
+        else:
+            output_path = f"report-{_run_timestamp}{ext}"
         with open(output_path, "w", encoding="utf-8") as fh:
             fh.write(rendered)
             fh.write("\n")
