@@ -16,6 +16,10 @@ creation:
   story_label: "epic-agent-generated"
   epic_summary_format: "[Observability] CNV {version} — Auto-generated observability stories"
   story_points_field: "customfield_10028"
+  # Jira issue link type name used to link the created story back
+  # to its source feature epic. Run `jira.issue_link_types()` to
+  # list available types in your instance.
+  relates_link_type: "Relates"
   # Prefix prepended to every agent-generated story summary so they
   # are easy to spot when browsing the epic's child issues in Jira.
   story_summary_prefix: "[agent]"

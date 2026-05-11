@@ -749,6 +749,9 @@ def create_obs_story(
     sp_field = creation_cfg.get(
         "story_points_field", "customfield_10028",
     )
+    relates_link_type = creation_cfg.get(
+        "relates_link_type", "Relates",
+    )
 
     s_hash = _hash_summary(summary)
     fingerprint = (
@@ -811,32 +814,35 @@ def create_obs_story(
                     pass
 
     # Link to the source feature epic
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             client.create_issue_link(
-                type="Relates",
+                type=relates_link_type,
                 inwardIssue=issue.key,
                 outwardIssue=source_epic_key,
             )
             break
         except Exception:
-            if attempt == 0:
+            if attempt < 2:
+                wait = 2 ** attempt  # 1s, 2s
                 logger.warning(
-                    "Relates link failed for %s → %s, retrying...",
-                    issue.key, source_epic_key,
+                    "Relates link failed for %s → %s "
+                    "(attempt %d/3), retrying in %ds...",
+                    issue.key, source_epic_key, attempt + 1, wait,
                 )
-                time.sleep(1)
+                time.sleep(wait)
             else:
                 logger.error(
-                    "Failed to link %s to %s after retry",
+                    "Failed to link %s to %s after 3 attempts",
                     issue.key, source_epic_key, exc_info=True,
                 )
                 warnings.relates_link_failed = True
                 try:
                     client.add_comment(
                         issue.key,
-                        f"⚠ Failed to create 'Relates' link to "
-                        f"{source_epic_key}. Please add manually.",
+                        f"⚠ Failed to create '{relates_link_type}' "
+                        f"link to {source_epic_key}. "
+                        f"Please add manually.",
                     )
                 except Exception:
                     pass
