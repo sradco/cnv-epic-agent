@@ -283,6 +283,15 @@ behavior?" If the answer is no (e.g. moving from API v1beta1 \
 to v1, adopting a new internal data structure, reorganizing \
 controllers), propose NOTHING. Internal implementation details \
 are not observable via Prometheus.
+- Do NOT propose metrics, alerts, or telemetry for epics \
+whose component is a **UI plugin** (React/TypeScript frontend, \
+OpenShift Console plugin, web UI). UI plugins run in the \
+browser and cannot expose Prometheus metrics. Any runtime \
+behavior they trigger (e.g. launching a Quick Start, opening \
+a wizard, submitting a form) is handled server-side by the \
+backend operator or Tekton — instrument that component \
+instead, not the UI plugin. If the backend component is \
+outside this epic's scope, propose NOTHING.
 """
 
 _FEW_SHOT_EXAMPLES = """\
@@ -349,6 +358,17 @@ refactoring epic. If the epic description is about \
 moving internal code to a new API version, adopting a \
 new CRD schema, or migrating internal data structures — \
 with no new user-facing behavior — propose NOTHING.
+
+BAD: Epic is in component "CNV User Interface" / "CNV User \
+Experience". Proposed `kubevirt_windows_efi_installer_pipeline_*` \
+metrics and alerts for the Windows EFI installer pipeline. \
+Wrong — this epic lives in the kubevirt-plugin (React/TypeScript \
+Console plugin). UI plugins run in the browser and cannot \
+expose Prometheus endpoints. The "pipeline" this UI links to \
+is a Tekton PipelineRun owned by a backend component \
+(kubevirt/tekton-tasks), not by the UI plugin. If the backend \
+does not expose metrics, propose NOTHING for the UI epic — \
+the instrumentation belongs in the backend's epic, not here.
 
 GOOD: Epic adds GPU passthrough. No existing GPU metrics \
 in inventory. Proposed `kubevirt_vmi_gpu_allocated` gauge \
