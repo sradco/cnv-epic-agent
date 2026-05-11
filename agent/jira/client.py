@@ -638,6 +638,9 @@ def find_or_create_obs_epic(
 
     jira_version = format_jira_version(cfg, version)
     epic_summary = epic_summary_fmt.format(version=version)
+    target_version_field = cfg.get("jira", {}).get(
+        "target_version_field", "customfield_10855"
+    )
 
     jql = (
         f'project = {project} AND type = Epic '
@@ -674,7 +677,10 @@ def find_or_create_obs_epic(
         "issuetype": {"name": "Epic"},
         "labels": [epic_label, obs_epic_label],
         "components": [{"name": component}],
-        "fixVersions": [{"name": jira_version}],
+        # Use Target Version (not fixVersions) so the epic is
+        # discoverable via "Target Version" = "CNV vX.Y.Z" JQL,
+        # which is how all observability-scoped searches work.
+        target_version_field: {"name": jira_version},
     }
     issue = client.create_issue(fields=fields)
     return {

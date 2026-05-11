@@ -533,7 +533,10 @@ class TestFindOrCreateObsEpic:
     """Verify obs epic search uses label + version, not summary."""
 
     _CFG = {
-        "jira": {"version_format": "CNV v{version}"},
+        "jira": {
+            "version_format": "CNV v{version}",
+            "target_version_field": "customfield_10855",
+        },
         "creation": {
             "project": "CNV",
             "epic_label": "cnv-observability",
@@ -592,9 +595,9 @@ class TestFindOrCreateObsEpic:
         fields = mock_client.create_issue.call_args[1]["fields"]
         assert "cnv-observability" in fields["labels"]
         assert "cnv-grooming-agent" in fields["labels"]
-        assert fields["fixVersions"] == [
-            {"name": "CNV v5.0.0"},
-        ]
+        # Target Version field is used — not fixVersions.
+        assert "fixVersions" not in fields
+        assert fields["customfield_10855"] == {"name": "CNV v5.0.0"}
 
 
 class TestDaysSinceLastAgentComment:
