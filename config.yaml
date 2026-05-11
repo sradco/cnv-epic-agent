@@ -46,6 +46,7 @@ discovery:
     - "https://github.com/kubevirt/monitoring"
     - "https://github.com/kubevirt/ssp-operator"
     - "https://github.com/stolostron/multicluster-observability-addon"
+    - "https://github.com/openshift-virtualization/csi-volume-device-exporter"
 
 telemetry:
   cmo_allowlist_url: "https://raw.githubusercontent.com/openshift/cluster-monitoring-operator/master/manifests/0000_50_cluster-monitoring-operator_04-config.yaml"
