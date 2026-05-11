@@ -1249,8 +1249,21 @@ def save_plan(
 
 def load_plan(path: str) -> dict[str, Any]:
     """Load and validate a plan file produced by a previous dry-run."""
+    if not path.endswith(".json"):
+        raise ConfigError(
+            f"--apply-plan expects a .json plan file, got: {path!r}\n"
+            "Hint: run with --save-plan to produce a plan file, "
+            "then pass that .json file to --apply-plan."
+        )
     with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
+        try:
+            data = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(
+                f"Plan file {path!r} is not valid JSON: {exc}\n"
+                "Hint: make sure you pass the .json plan file, "
+                "not the .md or .html report."
+            ) from exc
     if data.get("plan_version") != _PLAN_VERSION:
         raise ConfigError(
             f"Unsupported plan version {data.get('plan_version')!r}. "
