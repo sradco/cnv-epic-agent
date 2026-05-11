@@ -735,8 +735,14 @@ def create_obs_story(
     story_points: int | None = None,
     category: str = "",
     run_id: str = "",
+    parent_epic_key: str = "",
 ) -> tuple[Any, StoryLinkWarning]:
-    """Create a story under the obs epic and link it to the source epic.
+    """Create a story and link it to the source epic.
+
+    By default the story is added to the observability epic
+    (obs_epic_key).  Pass parent_epic_key to override the parent —
+    used for QE and docs stories which belong under the source
+    feature epic, not the observability epic.
 
     Returns (issue, warnings).  Embeds a fingerprint in the
     description for robust deduplication on subsequent runs.
@@ -786,10 +792,14 @@ def create_obs_story(
     issue = client.create_issue(fields=fields)
     warnings = StoryLinkWarning()
 
-    # Link the story to the observability epic via Epic Link
+    # QE and docs stories belong under the source feature epic;
+    # observability stories belong under the observability epic.
+    target_epic_key = parent_epic_key or obs_epic_key
+
+    # Link the story to the target epic via Epic Link
     for attempt in range(2):
         try:
-            client.add_issues_to_epic(obs_epic_key, [issue.key])
+            client.add_issues_to_epic(target_epic_key, [issue.key])
             break
         except Exception:
             if attempt == 0:
@@ -801,13 +811,13 @@ def create_obs_story(
             else:
                 logger.error(
                     "Failed to add %s to epic %s after retry",
-                    issue.key, obs_epic_key, exc_info=True,
+                    issue.key, target_epic_key, exc_info=True,
                 )
                 warnings.epic_link_failed = True
                 try:
                     client.add_comment(
                         issue.key,
-                        f"⚠ Failed to set Epic Link to {obs_epic_key}. "
+                        f"⚠ Failed to set Epic Link to {target_epic_key}. "
                         "Please add manually.",
                     )
                 except Exception:

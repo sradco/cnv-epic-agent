@@ -324,6 +324,15 @@ def _dedup_and_create(
 
         if ctx.apply and ctx.version:
             try:
+                # QE and docs stories are placed under the source
+                # feature epic (epic_key), not the observability epic,
+                # because they verify the feature — not obs infra.
+                _QE_DOC_CATS = {"qe", "docs", "documentation"}
+                parent_epic = (
+                    epic_key
+                    if (story.category or "").lower() in _QE_DOC_CATS
+                    else ""
+                )
                 issue, warnings = create_obs_story(
                     ctx.client, ctx.cfg,
                     obs_epic["key"], epic_key,
@@ -331,6 +340,7 @@ def _dedup_and_create(
                     story_points=story.story_points,
                     category=story.category,
                     run_id=ctx.run_id,
+                    parent_epic_key=parent_epic,
                 )
                 ctx.counters.created += 1
                 ctx.counters.record_category(
