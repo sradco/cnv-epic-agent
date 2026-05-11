@@ -274,6 +274,15 @@ controller_runtime_reconcile_time_seconds), kube-state-metrics \
 (kubelet_volume_stats_*). Do NOT propose metrics that duplicate \
 or overlap with these — instead, propose recording rules or \
 dashboards that leverage the existing platform metrics.
+- Do NOT propose anything for epics whose primary purpose is \
+internal refactoring, API version migration, CRD schema \
+changes, code restructuring, or dependency upgrades — even \
+if those changes touch observability-adjacent code. The test: \
+ask "does this change introduce new user-observable runtime \
+behavior?" If the answer is no (e.g. moving from API v1beta1 \
+to v1, adopting a new internal data structure, reorganizing \
+controllers), propose NOTHING. Internal implementation details \
+are not observable via Prometheus.
 """
 
 _FEW_SHOT_EXAMPLES = """\
@@ -326,6 +335,21 @@ that mirror the API's list output. A single aggregate gauge \
 per-object labels would be acceptable for multi-cluster \
 visibility.
 
+BAD: Epic implements HyperConverged API v1 (internal \
+CRD version conversion). Proposed \
+`kubevirt_hco_api_conversion_total` metric, \
+`KubeVirtHCOAPIVersionConversionFailed` alert, and a \
+dashboard panel for conversion outcomes. Wrong — API \
+version conversion is an internal Kubernetes controller \
+mechanism (handled by conversion webhooks). It is not a \
+user-observable operation: operators cannot act on a \
+"conversion failed" alert because conversions are \
+automatic and transparent. This is an internal \
+refactoring epic. If the epic description is about \
+moving internal code to a new API version, adopting a \
+new CRD schema, or migrating internal data structures — \
+with no new user-facing behavior — propose NOTHING.
+
 GOOD: Epic adds GPU passthrough. No existing GPU metrics \
 in inventory. Proposed `kubevirt_vmi_gpu_allocated` gauge \
 and `KubeVirtVMIGPUAllocationFailed` alert. Correct — \
@@ -334,17 +358,25 @@ genuinely new capability with no existing coverage.
 
 _DOCS_RULES = """\
 Docs story rules:
-- Only when the epic introduces a new user-facing feature, \
-changes behavior, renames concepts, or modifies APIs/CLI/UI.
-- Internal refactoring or backend-only changes do NOT need docs.
-- New metrics and recording rules do NOT need documentation. \
-The only exception is a metric or recording rule **name change** \
-— in that case propose a docs story for a deprecation notice \
-listing the old and new name.
+- Your role is an **observability docs** reviewer only. \
+You may ONLY propose docs stories for observability \
+artifacts: metric name changes, dashboard additions \
+visible to end users, or alert runbook updates for \
+already-existing alerts whose expression changed.
+- Do NOT propose docs stories for feature APIs, CRD \
+changes, UI changes, CLI flags, operator configuration, \
+or any other non-observability content — those are the \
+development team's responsibility and belong in the epic \
+itself, not as agent-generated stories.
+- New metrics and recording rules do NOT need \
+documentation. The only exception is a metric or \
+recording rule **name change** — in that case propose a \
+docs story for a deprecation notice listing the old and \
+new name.
 - For alerts: creating a runbook is the developer's \
-responsibility and is part of implementing the alert itself. \
-Do NOT propose a separate docs story for writing or \
-reviewing runbooks for any alert that is newly proposed \
+responsibility and is part of implementing the alert \
+itself. Do NOT propose a separate docs story for writing \
+or reviewing runbooks for any alert that is newly proposed \
 (either in this run or in a child story that is not yet \
 done). Runbook creation is NOT a docs deliverable.
 - The only alert-related docs story that is acceptable is \
@@ -352,11 +384,13 @@ a review of an **existing, already-implemented** alert's \
 runbook when the alert expression or semantics changed in \
 this epic — i.e., the alert is already listed under \
 `alerts_with_runbooks` and its expression was modified.
-- Description format: a short plain-text paragraph describing \
-what needs to be documented, followed by an acceptance \
-criteria checklist. Nothing else. Do NOT add sections like \
-"Why this is needed", "Proposed changes", "Who benefits", \
-"How it is used", or any other headings.
+- If you are unsure whether a docs story is needed, \
+default to NOT proposing one.
+- Description format: a short plain-text paragraph \
+describing what needs to be documented, followed by an \
+acceptance criteria checklist. Nothing else. Do NOT add \
+sections like "Why this is needed", "Proposed changes", \
+"Who benefits", "How it is used", or any other headings.
 """
 
 _QE_RULES = """\

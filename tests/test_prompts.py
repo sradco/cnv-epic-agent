@@ -147,10 +147,10 @@ class TestGetSystemPromptWithObservability:
 class TestGetSystemPromptWithDocs:
     """Tests for docs rules injected via get_system_prompt."""
 
-    def test_docs_only_for_user_facing_changes(self):
+    def test_docs_observability_scope_only(self):
         lowered = get_system_prompt(["docs"]).lower()
-        assert "user-facing" in lowered
-        assert "internal refactoring" in lowered
+        assert "observability docs" in lowered
+        assert "feature apis" in lowered or "non-observability" in lowered
 
     def test_docs_minimal_description(self):
         lowered = get_system_prompt(["docs"]).lower()
