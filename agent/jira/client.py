@@ -493,11 +493,28 @@ _QE_DOC_PREFIX_RE = re.compile(
     r'^\s*\[(QE|Docs)\]', re.IGNORECASE,
 )
 
+# Matches technical tokens: metric names (snake_case ≥10 chars),
+# alert names (CamelCase starting with a capital, ≥10 chars), and
+# component/exporter names like "csi-volume-device-exporter".
+_TECH_TOKEN_RE = re.compile(
+    r'\b(?:'
+    r'[a-z][a-z0-9_]{9,}'   # snake_case metric names (≥10 chars)
+    r'|[A-Z][a-zA-Z]{9,}'   # CamelCase alert/component names (≥10)
+    r'|[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}'  # kebab-case (≥3 segments)
+    r')\b'
+)
+
+
+def _tech_tokens(text: str) -> frozenset[str]:
+    """Extract significant technical tokens from text (lowercase)."""
+    return frozenset(t.lower() for t in _TECH_TOKEN_RE.findall(text))
+
 
 def is_duplicate_story(
     story_summary: str,
     source_epic_key: str,
     existing: list[dict[str, Any]],
+    story_description: str = "",
 ) -> str | None:
     """Check if a story is a duplicate using multiple strategies.
 
@@ -519,6 +536,14 @@ def is_duplicate_story(
        equal strings are caught by strategy 2).
        Disabled for source-epic children (``_from_children``)
        because QE/docs stories naturally reuse child phrasing.
+    5. Technical token overlap (children only): extract
+       significant tokens (metric names, alert names, kebab
+       component names) from the proposed story's summary+
+       description and the child's description. If ≥2 tokens
+       overlap the child is considered to already cover the
+       work — avoids proposing metrics/alerts that a child
+       story already describes even when summaries differ.
+       Not applied to QE/docs stories (complementary work).
 
     For broad-search entries (``_from_broad_search``), only
     strategies 2 and 4 apply — fingerprint and key-reference
@@ -554,6 +579,25 @@ def is_duplicate_story(
                     return e_key
 
         if from_children:
+            # Strategy 5: technical token overlap against child
+            # description. Catches cases where a child story describes
+            # the same metric/alert work with a different summary.
+            # Only for observability proposals (not QE/docs which are
+            # complementary and intentionally reference child tokens).
+            if not is_qe_or_docs:
+                proposed_tokens = _tech_tokens(
+                    story_summary + " " + story_description
+                )
+                child_desc_tokens = _tech_tokens(
+                    e.get("summary", "") + " " + e.get("description", "")
+                )
+                overlap = proposed_tokens & child_desc_tokens
+                if len(overlap) >= 2:
+                    logger.debug(
+                        "Tech token overlap (%d tokens) with %s: %s",
+                        len(overlap), e_key, overlap,
+                    )
+                    return e_key or "unknown"
             continue
 
         if norm_new != norm_existing and len(norm_existing) >= 20:

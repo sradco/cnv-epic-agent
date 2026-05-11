@@ -271,6 +271,86 @@ class TestIsDuplicateStory:
             "CNV-81938", existing,
         ) is None
 
+    def test_child_tech_token_overlap_is_dup(self):
+        """Strategy 5: child description mentions same metrics/alerts."""
+        existing = [
+            {
+                "key": "CNV-66837",
+                "summary": (
+                    "Add csi-volume-device-exporter DaemonSet for "
+                    "storage path alerting (Storage QE help needed)"
+                ),
+                "labels": [],
+                "description": (
+                    "node_exporter exposes multipath path health but "
+                    "cannot link a degraded path to the PV or VM. "
+                    "csi-volume-device-exporter fills this gap by "
+                    "emitting a metric that maps each CSI volume to "
+                    "its underlying block device, enabling the "
+                    "CSIVolumeMultipathDegraded alert. It also adds a "
+                    "CSIVolumeDeviceExporterDown alert."
+                ),
+                "_from_children": True,
+            },
+        ]
+        assert is_duplicate_story(
+            "[Observability][alerts] Add CSIVolumeMultipathDegraded "
+            "alert for degraded multipath paths",
+            "CNV-66667",
+            existing,
+            story_description=(
+                "Emit CSIVolumeMultipathDegraded when a CSI volume "
+                "has a degraded multipath path. Uses the "
+                "csi-volume-device-exporter metric."
+            ),
+        ) is not None
+
+    def test_child_tech_token_overlap_qe_not_dup(self):
+        """Strategy 5 does NOT fire for QE/docs proposals."""
+        existing = [
+            {
+                "key": "CNV-66837",
+                "summary": (
+                    "Add csi-volume-device-exporter DaemonSet"
+                ),
+                "labels": [],
+                "description": (
+                    "Adds CSIVolumeMultipathDegraded alert and "
+                    "CSIVolumeDeviceExporterDown alert via "
+                    "csi-volume-device-exporter."
+                ),
+                "_from_children": True,
+            },
+        ]
+        # QE proposals intentionally reference the same tokens
+        assert is_duplicate_story(
+            "[QE] Verify CSIVolumeMultipathDegraded alert fires "
+            "correctly for csi-volume-device-exporter",
+            "CNV-66667",
+            existing,
+            story_description="",
+        ) is None
+
+    def test_child_tech_token_overlap_single_token_not_dup(self):
+        """Strategy 5 requires ≥2 overlapping tokens."""
+        existing = [
+            {
+                "key": "CNV-66837",
+                "summary": "Add csi-volume-device-exporter DaemonSet",
+                "labels": [],
+                "description": "Adds CSIVolumeMultipathDegraded alert.",
+                "_from_children": True,
+            },
+        ]
+        # Proposed story only shares one token ("CSIVolumeMultipathDegraded")
+        assert is_duplicate_story(
+            "[Observability][metrics] Track VMI memory balloon "
+            "stats with CSIVolumeMultipathDegraded label",
+            "CNV-66667",
+            existing,
+            story_description="Add kubevirt_vmi_memory_balloon_bytes.",
+        ) is None
+
     def test_child_exact_match_still_dup(self):
         existing = [
             {

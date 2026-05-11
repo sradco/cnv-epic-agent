@@ -269,6 +269,7 @@ def _dedup_and_create(
 
         dup_key = is_duplicate_story(
             story.summary, epic_key, existing,
+            story_description=story.description,
         )
         if dup_key:
             ctx.counters.skipped += 1
