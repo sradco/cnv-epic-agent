@@ -167,10 +167,12 @@ class TestGetSystemPromptWithDocs:
         assert "name change" in lowered
         assert "deprecation notice" in lowered
 
-    def test_docs_alert_runbook_review_per_version(self):
+    def test_docs_alert_runbook_not_separate_story(self):
+        """Runbook creation is part of alert implementation, not a docs story."""
         lowered = get_system_prompt(["docs"]).lower()
         assert "runbook" in lowered
-        assert "one docs story per version" in lowered
+        assert "developer's" in lowered
+        assert "do not propose a separate docs story" in lowered
 
     def test_docs_rules_not_injected_without_docs(self):
         lowered = get_system_prompt(["metrics"]).lower()

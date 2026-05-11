@@ -341,21 +341,17 @@ changes behavior, renames concepts, or modifies APIs/CLI/UI.
 The only exception is a metric or recording rule **name change** \
 — in that case propose a docs story for a deprecation notice \
 listing the old and new name.
-- For alerts: the docs team reviews new and updated alert \
-runbooks. Propose one docs story per version in the metrics \
-backlog epic to cover runbook review for all alerts in that \
-version. Do NOT create a separate docs story per alert.
-- The "Naming conventions" section lists all alerts that \
-already have runbooks (under `alerts_with_runbooks`). \
-Only propose runbook docs work for **new** alerts that \
-are NOT in that list. If the alert already has a runbook, \
-the docs team only needs to review it if the alert \
-expression or semantics changed — not for every run.
-- REQUIRED: When this response proposes any new alerts — \
-whether from gap analysis or from your own proposals — you \
-MUST also propose a docs story for the runbook review of \
-those alerts. Treat your own proposed alerts as "new alerts" \
-that need runbook documentation.
+- For alerts: creating a runbook is the developer's \
+responsibility and is part of implementing the alert itself. \
+Do NOT propose a separate docs story for writing or \
+reviewing runbooks for any alert that is newly proposed \
+(either in this run or in a child story that is not yet \
+done). Runbook creation is NOT a docs deliverable.
+- The only alert-related docs story that is acceptable is \
+a review of an **existing, already-implemented** alert's \
+runbook when the alert expression or semantics changed in \
+this epic — i.e., the alert is already listed under \
+`alerts_with_runbooks` and its expression was modified.
 - Description format: a short plain-text paragraph describing \
 what needs to be documented, followed by an acceptance \
 criteria checklist. Nothing else. Do NOT add sections like \
