@@ -1566,11 +1566,22 @@ def run(
 
     if categories:
         from schemas.stories import VALID_CATEGORIES
+        # Expand the 'observability' alias to its sub-categories so users
+        # can pass --categories observability instead of listing each one.
+        expanded: list[str] = []
+        for cat in categories:
+            if cat == "observability":
+                expanded.extend(sorted(_OBS_SUBCATEGORIES))
+            else:
+                expanded.append(cat)
+        categories = list(dict.fromkeys(expanded))  # deduplicate, preserve order
         for cat in categories:
             if cat not in VALID_CATEGORIES:
                 raise ConfigError(
                     f"Unknown category {cat!r}. "
-                    f"Valid: {sorted(VALID_CATEGORIES)}"
+                    f"Valid: {sorted(VALID_CATEGORIES)} "
+                    f"or 'observability' (expands to "
+                    f"{sorted(_OBS_SUBCATEGORIES)})"
                 )
     enabled_categories: list[str] = (
         categories or app_cfg.agent.enabled_categories

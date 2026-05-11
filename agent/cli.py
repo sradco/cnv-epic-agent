@@ -107,7 +107,9 @@ def main() -> None:
         default="",
         help=(
             "Comma-separated list of categories to produce "
-            "(e.g. metrics,docs,qe).  Default: all enabled in config."
+            "(e.g. metrics,docs,qe). Use 'observability' as a shorthand "
+            "for metrics,alerts,dashboards,telemetry. "
+            "Default: all enabled in config."
         ),
     )
     parser.add_argument(
