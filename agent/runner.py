@@ -305,7 +305,22 @@ def _dedup_and_create(
         full_prefix = (
             f"{base_prefix}{cat_tag}" if base_prefix else cat_tag
         )
-        display_summary = f"{full_prefix} {story.summary}".strip()
+        # Strip any agent-owned category tag the LLM may have added to
+        # the summary itself to prevent doubled tags like [agent][QE] [QE].
+        # Only strip exact known tags, not [Observability][...] which
+        # the LLM should keep.
+        _AGENT_TAGS_RE = re.compile(
+            r"^\s*(\[QE\]|\[Docs\]|\[Obs\]|\[agent\])\s*",
+            re.IGNORECASE,
+        )
+        clean_summary = story.summary
+        while _AGENT_TAGS_RE.match(clean_summary):
+            clean_summary = _AGENT_TAGS_RE.sub("", clean_summary, count=1)
+        clean_summary = clean_summary.strip()
+        display_summary = (
+            f"{full_prefix} {clean_summary}".strip()
+            if full_prefix else clean_summary
+        )
 
         if ctx.apply and ctx.version:
             try:

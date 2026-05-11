@@ -72,10 +72,16 @@ STORY_JSON_SCHEMA: dict[str, Any] = {
                     "summary": {
                         "type": "string",
                         "description": (
-                            "Jira story title, e.g. "
-                            "'[Observability][metrics] Add Prometheus metrics "
-                            "for CNV-12345: VM snapshot controller' or "
-                            "'[Docs] Update API docs for CNV-12345'"
+                            "Jira story title. Do NOT add any bracketed "
+                            "category prefix like [QE], [Docs], or [Obs] "
+                            "— the agent adds those automatically. "
+                            "For observability stories use the format "
+                            "'[Observability][metrics] Add Prometheus "
+                            "metrics for CNV-12345: VM snapshot controller'. "
+                            "For QE stories: 'Verify GPU metric unit tests "
+                            "for CNV-12345'. "
+                            "For docs stories: 'Update runbook for "
+                            "KubeVirtVMIGPUAllocationFailed alert'."
                         ),
                     },
                     "description": {
