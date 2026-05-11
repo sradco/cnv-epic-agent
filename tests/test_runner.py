@@ -1,5 +1,7 @@
 """Integration-style tests for agent.runner with mocked Jira and LLM."""
 
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1708,3 +1710,161 @@ class TestFeedbackCount:
                 "https://github.com/sradco/cnv-epic-agent"
             )
         assert result is None
+
+
+class TestPlanRoundTrip:
+    """Tests for save_plan / load_plan / apply_plan."""
+
+    def _make_plan_data(self) -> dict:
+        from agent.runner import _PLAN_VERSION
+        return {
+            "plan_version": _PLAN_VERSION,
+            "created_at": "2026-01-01 00:00 UTC",
+            "run_id": "abc123",
+            "version": "4.22",
+            "epics": [
+                {
+                    "epic_key": "CNV-100",
+                    "stories": [
+                        {
+                            "category": "metrics",
+                            "summary": "[Observability][metrics] Add foo metric",
+                            "description": "Desc",
+                            "story_points": 3,
+                            "reasoning": "Needed",
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def test_save_and_load_roundtrip(self):
+        from agent.runner import _PLAN_VERSION, load_plan, save_plan
+        plan = self._make_plan_data()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "plan.json")
+            save_plan(plan, path)
+            loaded = load_plan(path)
+        assert loaded["plan_version"] == _PLAN_VERSION
+        assert loaded["version"] == "4.22"
+        assert loaded["epics"][0]["epic_key"] == "CNV-100"
+        assert loaded["epics"][0]["stories"][0]["category"] == "metrics"
+
+    def test_load_plan_wrong_version_raises(self):
+        from agent.runner import load_plan, save_plan
+        from schemas.config import ConfigError
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "bad.json")
+            save_plan({"plan_version": 99, "epics": []}, path)
+            with pytest.raises(ConfigError):
+                load_plan(path)
+
+    def test_plan_collector_populated_during_run(self):
+        """plan_collector receives proposed stories from _process_epic."""
+        from agent.runner import _EpicTally, _RunContext, _process_epic
+        from schemas.stories import StoryPayload
+
+        mock_epic = MagicMock()
+        mock_epic.key = "CNV-200"
+
+        tally = _EpicTally("CNV-200")
+        counters = MagicMock()
+        counters.epic_tallies = [tally]
+        counters.created = 0
+        counters.skipped = 0
+        counters.record_epic_status = MagicMock()
+
+        story = StoryPayload(
+            category="metrics",
+            summary="[Observability][metrics] New metric",
+            description="desc",
+            story_points=3,
+        )
+
+        ctx = MagicMock(spec=_RunContext)
+        ctx.client = MagicMock()
+        ctx.apply = False
+        ctx.version = "4.22"
+        ctx.run_id = "test"
+        ctx.max_stories = 100
+        ctx.counters = counters
+        ctx.cfg = {}
+        ctx.model = "gpt-4o"
+        ctx.temperature = 0.0
+        ctx.story_points_guidance = ""
+
+        app_cfg = MagicMock()
+        app_cfg.grooming.no_qe_label = "no-qe"
+        app_cfg.grooming.no_doc_label = "no-doc"
+        app_cfg.grooming.llm_check = False
+        app_cfg.grooming.comment_cooldown_days = 7
+        app_cfg.grooming.enabled = False
+        app_cfg.agent.story_points.enabled = False
+        app_cfg.agent.feedback_repo = ""
+        sp_field = "story_points"
+        app_cfg.jira.sp_field = sp_field
+        app_cfg.jira.target_version_field = ""
+        app_cfg.raw = {
+            "jira": {"sp_field": sp_field, "target_version_field": ""},
+            "creation": {"story_summary_prefix": "[agent]"},
+        }
+
+        collector: dict = {}
+
+        mock_epic_obj = MagicMock()
+        mock_epic_obj.summary = "Test epic"
+        mock_epic_obj.key = "CNV-200"
+
+        tally_obj = _EpicTally("CNV-200")
+        ctx.counters._get_or_create_tally.return_value = tally_obj
+
+        with (
+            patch(
+                "agent.runner.fetch_epic_with_children",
+                return_value=(mock_epic_obj, []),
+            ),
+            patch(
+                "agent.runner._check_grooming",
+                return_value=(False, ""),
+            ),
+            patch(
+                "agent.runner.build_analysis_result",
+                return_value={
+                    "epic_key": "CNV-200",
+                    "epic_summary": "Test",
+                    "epic_labels": [],
+                    "gaps": ["metrics"],
+                    "child_issues": [],
+                    "domain_keywords": [],
+                },
+            ),
+            patch("agent.runner.compose_stories", return_value=[story]),
+            patch(
+                "agent.runner.find_or_create_obs_epic",
+                return_value={"key": "CNV-OBS", "summary": "Obs"},
+            ),
+            patch(
+                "agent.runner.find_existing_obs_stories",
+                return_value=[],
+            ),
+            patch(
+                "agent.runner.find_broad_matching_stories",
+                return_value=[],
+            ),
+            patch(
+                "agent.runner._children_as_dedup_entries",
+                return_value=[],
+            ),
+            patch("agent.runner.estimate_story_points"),
+        ):
+            _process_epic(
+                mock_epic, ctx, app_cfg, {},
+                enabled_categories=["metrics"],
+                category_guidance={},
+                use_llm=True,
+                estimate_existing=False,
+                plan_collector=collector,
+            )
+
+        assert "CNV-200" in collector
+        assert collector["CNV-200"][0].summary == story.summary

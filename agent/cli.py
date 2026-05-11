@@ -123,6 +123,26 @@ def main() -> None:
         help="Force fresh inventory scan (skip filesystem cache)",
     )
     parser.add_argument(
+        "--save-plan",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Dry-run only: save proposed stories to FILE as JSON. "
+            "The plan can be reviewed/edited and later applied with "
+            "--apply-plan without re-running the LLM."
+        ),
+    )
+    parser.add_argument(
+        "--apply-plan",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Load a plan file saved by --save-plan and create the "
+            "stories in Jira without re-running the LLM. "
+            "Skips all epic scanning, inventory, and analysis."
+        ),
+    )
+    parser.add_argument(
         "--config", "-c",
         default=None,
         help=(
@@ -164,30 +184,58 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    from agent.runner import run
+    if args.apply_plan and args.save_plan:
+        parser.error("--apply-plan and --save-plan are mutually exclusive.")
+    if args.apply_plan and args.apply:
+        parser.error(
+            "--apply-plan already implies apply mode; "
+            "do not pass --apply together with --apply-plan."
+        )
 
-    categories = (
-        [c.strip() for c in args.categories.split(",") if c.strip()]
-        if args.categories
-        else None
-    )
+    from agent.runner import apply_plan, run
 
-    report = run(
-        epic_keys=args.epic,
-        jql=args.jql,
-        version=args.version,
-        since_days=args.since_days,
-        component=args.component,
-        fix_version=args.fix_version,
-        target_version=args.target_version,
-        labels=args.label,
-        apply=args.apply,
-        model=args.model,
-        use_llm=not args.no_llm,
-        categories=categories,
-        config_path=args.config,
-        no_cache=args.no_cache,
-    )
+    if args.apply_plan:
+        report = apply_plan(
+            args.apply_plan,
+            config_path=args.config,
+        )
+    else:
+        categories = (
+            [c.strip() for c in args.categories.split(",") if c.strip()]
+            if args.categories
+            else None
+        )
+
+        save_plan_path: str | None = None
+        if args.save_plan:
+            if args.apply:
+                parser.error(
+                    "--save-plan is for dry-run mode; "
+                    "remove --apply or use --apply-plan instead."
+                )
+            base, _ext = os.path.splitext(args.save_plan)
+            timestamp = datetime.now(timezone.utc).strftime(
+                "%Y%m%d-%H%M%S"
+            )
+            save_plan_path = f"{base}-{timestamp}.json"
+
+        report = run(
+            epic_keys=args.epic,
+            jql=args.jql,
+            version=args.version,
+            since_days=args.since_days,
+            component=args.component,
+            fix_version=args.fix_version,
+            target_version=args.target_version,
+            labels=args.label,
+            apply=args.apply,
+            model=args.model,
+            use_llm=not args.no_llm,
+            categories=categories,
+            config_path=args.config,
+            no_cache=args.no_cache,
+            save_plan_path=save_plan_path,
+        )
 
     output_format = args.format
 

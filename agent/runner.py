@@ -659,6 +659,7 @@ def _process_epic(
     category_guidance: dict[str, Any],
     use_llm: bool,
     estimate_existing: bool,
+    plan_collector: dict[str, list[StoryPayload]] | None = None,
 ) -> list[str]:
     """Process a single epic: grooming check, analysis, story creation."""
     epic_key = epic_issue.key
@@ -870,6 +871,11 @@ def _process_epic(
                 "continuing without it",
                 run_id, epic_key, exc_info=True,
             )
+
+    # Record proposed stories in plan before dedup so the saved plan
+    # contains every LLM suggestion; dedup is re-applied on apply-plan.
+    if plan_collector is not None:
+        plan_collector[epic_key] = list(stories)
 
     story_lines = _dedup_and_create(
         stories, epic_key, obs_epic, existing, ctx,
@@ -1201,6 +1207,137 @@ def _build_report_summary(
     return lines
 
 
+_PLAN_VERSION = 1
+
+
+def save_plan(
+    plan: dict[str, Any],
+    path: str,
+) -> None:
+    """Write a dry-run plan to *path* as JSON."""
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(plan, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    logger.info("Plan saved to %s", path)
+
+
+def load_plan(path: str) -> dict[str, Any]:
+    """Load and validate a plan file produced by a previous dry-run."""
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if data.get("plan_version") != _PLAN_VERSION:
+        raise ConfigError(
+            f"Unsupported plan version {data.get('plan_version')!r}. "
+            f"Expected {_PLAN_VERSION}."
+        )
+    return data
+
+
+def apply_plan(
+    plan_path: str,
+    *,
+    config_path: str | None = None,
+) -> str:
+    """Apply a saved dry-run plan: create stories without re-running the LLM.
+
+    Loads *plan_path*, deduplicates each story against existing Jira
+    children, and creates any that are not already present.
+    """
+    run_id = uuid.uuid4().hex[:8]
+    app_cfg = _load_config(config_path)
+    cfg = app_cfg.raw
+
+    plan = load_plan(plan_path)
+    version = plan.get("version", "")
+    if not version:
+        raise ConfigError(
+            "Plan file has no 'version' field. "
+            "Re-run the dry-run with --version to generate a valid plan."
+        )
+
+    client = get_jira_client(cfg)
+    max_stories = app_cfg.agent.max_stories_per_run
+
+    ctx = _RunContext(
+        client=client,
+        cfg=cfg,
+        apply=True,
+        version=version,
+        max_stories=max_stories,
+        model="(plan)",
+        temperature=0.0,
+        story_points_guidance="",
+        run_id=run_id,
+    )
+
+    run_timestamp = datetime.now(timezone.utc).strftime(
+        "%Y-%m-%d %H:%M UTC"
+    )
+    lines: list[str] = [
+        "# Epic Agent Run (APPLY FROM PLAN)",
+        "",
+        f"- **Date:** {run_timestamp}",
+        f"- **Plan file:** {plan_path}",
+        f"- **Plan created:** {plan.get('created_at', '?')}",
+        f"- **Version:** {version}",
+        f"- **Run ID:** {run_id}",
+        "",
+    ]
+
+    try:
+        obs_epic = find_or_create_obs_epic(
+            client, cfg, version, dry_run=False,
+        )
+    except Exception:
+        logger.error(
+            "[%s] Failed to resolve observability epic",
+            run_id, exc_info=True,
+        )
+        return "\n".join(lines + ["**ERROR**: Could not resolve observability epic."])
+
+    for entry in plan.get("epics", []):
+        epic_key = entry.get("epic_key", "")
+        raw_stories = entry.get("stories", [])
+        if not raw_stories:
+            continue
+
+        stories = [
+            StoryPayload(
+                category=s["category"],
+                summary=s["summary"],
+                description=s["description"],
+                story_points=s.get("story_points"),
+                reasoning=s.get("reasoning", ""),
+            )
+            for s in raw_stories
+        ]
+
+        lines.append(f"## {epic_key}")
+        lines.append("")
+
+        try:
+            existing = find_existing_obs_stories(
+                client, cfg, obs_epic["key"], epic_key,
+            )
+        except Exception:
+            logger.warning(
+                "[%s] Could not fetch existing stories for %s",
+                run_id, epic_key, exc_info=True,
+            )
+            existing = []
+
+        story_lines = _dedup_and_create(
+            stories, epic_key, obs_epic, existing, ctx,
+        )
+        lines.extend(story_lines)
+        lines.append("")
+
+    summary_lines = _build_report_summary(
+        ctx.counters, len(plan.get("epics", [])), apply=True,
+    )
+    return "\n".join(lines[:3] + summary_lines + lines[3:])
+
+
 def run(
     epic_keys: list[str] | None = None,
     jql: str | None = None,
@@ -1216,6 +1353,7 @@ def run(
     categories: list[str] | None = None,
     config_path: str | None = None,
     no_cache: bool = False,
+    save_plan_path: str | None = None,
 ) -> str:
     """Run the full epic agent pipeline.
 
@@ -1234,6 +1372,7 @@ def run(
                use template-based stories
     - categories: category list override (None = use config)
     - config_path: path to config.yaml (None = project default)
+    - save_plan_path: if set, write proposed stories to this JSON file
     """
     run_id = uuid.uuid4().hex[:8]
     app_cfg = _load_config(config_path)
@@ -1353,6 +1492,12 @@ def run(
         )
     header_lines.append("")
 
+    # plan_collector accumulates proposed stories per epic when
+    # --save-plan is requested, keyed by epic key.
+    plan_collector: dict[str, list[StoryPayload]] | None = (
+        {} if save_plan_path else None
+    )
+
     epic_detail_lines: list[str] = []
     for epic_issue in epics_to_process:
         epic_lines = _process_epic(
@@ -1361,8 +1506,39 @@ def run(
             category_guidance=category_guidance,
             use_llm=use_llm,
             estimate_existing=estimate_existing,
+            plan_collector=plan_collector,
         )
         epic_detail_lines.extend(epic_lines)
+
+    if save_plan_path and plan_collector is not None:
+        plan_data: dict[str, Any] = {
+            "plan_version": _PLAN_VERSION,
+            "created_at": run_timestamp,
+            "run_id": run_id,
+            "version": version,
+            "epics": [
+                {
+                    "epic_key": epic_key,
+                    "stories": [
+                        {
+                            "category": s.category,
+                            "summary": s.summary,
+                            "description": s.description,
+                            "story_points": s.story_points,
+                            "reasoning": s.reasoning,
+                        }
+                        for s in stories
+                    ],
+                }
+                for epic_key, stories in plan_collector.items()
+                if stories
+            ],
+        }
+        save_plan(plan_data, save_plan_path)
+        header_lines.insert(
+            -1,
+            f"- **Plan saved:** {save_plan_path}",
+        )
 
     summary_lines = _build_report_summary(
         ctx.counters, len(epics_to_process), apply,
