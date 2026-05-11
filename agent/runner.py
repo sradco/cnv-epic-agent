@@ -1262,11 +1262,16 @@ def apply_plan(
     plan_path: str,
     *,
     config_path: str | None = None,
+    epic_keys: list[str] | None = None,
 ) -> str:
     """Apply a saved dry-run plan: create stories without re-running the LLM.
 
     Loads *plan_path*, deduplicates each story against existing Jira
     children, and creates any that are not already present.
+
+    Parameters:
+    - epic_keys: if set, only process epics whose key is in this list.
+      Useful for applying a single epic from a larger plan.
     """
     run_id = uuid.uuid4().hex[:8]
     app_cfg = _load_config(config_path)
@@ -1298,6 +1303,8 @@ def apply_plan(
     run_timestamp = datetime.now(timezone.utc).strftime(
         "%Y-%m-%d %H:%M UTC"
     )
+    filter_set = {k.upper() for k in epic_keys} if epic_keys else None
+
     lines: list[str] = [
         "# Epic Agent Run (APPLY FROM PLAN)",
         "",
@@ -1306,8 +1313,12 @@ def apply_plan(
         f"- **Plan created:** {plan.get('created_at', '?')}",
         f"- **Version:** {version}",
         f"- **Run ID:** {run_id}",
-        "",
     ]
+    if filter_set:
+        lines.append(
+            f"- **Epic filter:** {', '.join(sorted(filter_set))}"
+        )
+    lines.append("")
 
     try:
         obs_epic = find_or_create_obs_epic(
@@ -1320,7 +1331,21 @@ def apply_plan(
         )
         return "\n".join(lines + ["**ERROR**: Could not resolve observability epic."])
 
-    for entry in plan.get("epics", []):
+    all_entries = plan.get("epics", [])
+    if filter_set:
+        all_entries = [
+            e for e in all_entries
+            if e.get("epic_key", "").upper() in filter_set
+        ]
+        if not all_entries:
+            return "\n".join(
+                lines + [
+                    f"**No matching epics found in plan for: "
+                    f"{', '.join(sorted(filter_set))}**"
+                ]
+            )
+
+    for entry in all_entries:
         epic_key = entry.get("epic_key", "")
         raw_stories = entry.get("stories", [])
         if not raw_stories:
@@ -1358,7 +1383,7 @@ def apply_plan(
         lines.append("")
 
     summary_lines = _build_report_summary(
-        ctx.counters, len(plan.get("epics", [])), apply=True,
+        ctx.counters, len(all_entries), apply=True,
     )
     return "\n".join(lines[:3] + summary_lines + lines[3:])
 

@@ -206,6 +206,7 @@ def main() -> None:
         report = apply_plan(
             args.apply_plan,
             config_path=args.config,
+            epic_keys=args.epic,
         )
     else:
         categories = (
