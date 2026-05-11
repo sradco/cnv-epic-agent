@@ -371,9 +371,14 @@ to verify. Nothing else. Do NOT add sections like \
 "How it is used", or any other headings.
 - Distinguish new vs. migrated items: moved/refactored items \
 (same names) already have tests — only propose end-to-end \
-and upgrade/rollback verification. Renamed metrics need a \
-story to update existing tests. Only propose unit tests for \
-genuinely new metrics/alerts.
+verification. Renamed metrics need a story to update \
+existing tests. Only propose unit tests for genuinely new \
+metrics/alerts.
+- Do NOT propose upgrade or rollback stories for metrics, \
+alerts, or recording rules. Prometheus metrics and alert \
+rules are stateless — they do not require upgrade or \
+rollback test coverage. Upgrade/rollback testing is only \
+relevant for features with persistent state or APIs.
 - Do NOT propose QE stories for child issues that are \
 already Closed, Done, Resolved, or Won't Fix.
 - REQUIRED: When this response proposes any new metrics or \
@@ -383,8 +388,7 @@ to verify them. Do not skip QE because the observability \
 stories are not yet in Jira; treat your own proposals as \
 planned work that needs test coverage.
 - Test categories: metric unit tests (new only), alert rule \
-tests (new only), dashboard verification, end-to-end pipeline, \
-upgrade/rollback verification.
+tests (new only), dashboard verification, end-to-end pipeline.
 - Do NOT create a single monolithic QE story.
 """
 
