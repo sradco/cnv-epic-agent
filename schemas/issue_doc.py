@@ -21,6 +21,7 @@ class IssueDoc:
     labels: list[str] | None = None
     components: list[str] | None = None
     story_points: int = 0
+    status: str = ""
 
     @classmethod
     def from_jira(
@@ -66,6 +67,12 @@ class IssueDoc:
         except (ValueError, TypeError):
             sp = 0
 
+        raw_status = (
+            fields.get("status", {}) if isinstance(fields, dict)
+            else getattr(fields, "status", None)
+        )
+        status_name = _field(raw_status, "name") if raw_status else ""
+
         return cls(
             key=key,
             summary=_field(fields, "summary"),
@@ -78,6 +85,7 @@ class IssueDoc:
                 for c in raw_components
             ],
             story_points=sp,
+            status=status_name,
         )
 
     @classmethod

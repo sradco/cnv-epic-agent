@@ -167,6 +167,11 @@ you would propose, that work is already planned — do NOT \
 propose a new story for it. Only propose QE or docs stories \
 that complement existing children when genuinely needed.
 
+Child issues are shown with their status in brackets, e.g. \
+**CNV-123 [Closed]**. Do NOT propose QE or docs stories \
+for child issues whose status is Closed, Done, Resolved, \
+or Won't Fix — that work is already complete or cancelled.
+
 If the epic has a **no-doc** label, skip docs stories. \
 If the epic has a **no-qe** label, skip QE stories.
 
@@ -373,6 +378,8 @@ to verify. Nothing else. Do NOT add sections like \
 and upgrade/rollback verification. Renamed metrics need a \
 story to update existing tests. Only propose unit tests for \
 genuinely new metrics/alerts.
+- Do NOT propose QE stories for child issues that are \
+already Closed, Done, Resolved, or Won't Fix.
 - REQUIRED: When this response proposes any new metrics or \
 alerts — whether from gap analysis or from your own \
 observability proposals — you MUST also propose QE stories \
@@ -453,7 +460,9 @@ def build_story_composition_prompt(
         parts.append(f"## Child issues ({len(children)})")
         parts.append("---BEGIN CHILD ISSUES---")
         for c in children:
-            parts.append(f"- **{c['key']}**: {c['summary']}")
+            status = c.get("status", "")
+            status_tag = f" [{status}]" if status else ""
+            parts.append(f"- **{c['key']}**{status_tag}: {c['summary']}")
             if c.get("description"):
                 desc_short = strip_jira_markup(c["description"])[:300]
                 parts.append(f"  {desc_short}")

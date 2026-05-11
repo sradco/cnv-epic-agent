@@ -749,7 +749,12 @@ def build_analysis_result(
     domain_keywords = extract_domain_keywords(issue_set)
 
     child_issues_data = [
-        {"key": c.key, "summary": c.summary, "description": c.description}
+        {
+            "key": c.key,
+            "summary": c.summary,
+            "description": c.description,
+            "status": c.status,
+        }
         for c in related_issues
     ]
 
