@@ -297,6 +297,27 @@ def add_reviewed_label(
         logger.info("Added '%s' label to %s", label, epic_key)
 
 
+def remove_reviewed_label(
+    client: JIRA,
+    cfg: dict[str, Any],
+    epic_key: str,
+) -> None:
+    """Remove the reviewed label from an epic if present.
+
+    Called when the agent creates new stories for an epic that
+    previously had the label — the epic is no longer fully reviewed.
+    """
+    grooming_cfg = cfg.get("grooming", {})
+    label = grooming_cfg.get("reviewed_label", "cnv-grooming-agent-reviewed")
+    issue = client.issue(epic_key)
+    existing = getattr(issue.fields, "labels", []) or []
+    if label in existing:
+        issue.update(
+            fields={"labels": [l for l in existing if l != label]}
+        )
+        logger.info("Removed '%s' label from %s", label, epic_key)
+
+
 @_retry_on_jira_error
 def add_reviewed_comment(
     client: JIRA,

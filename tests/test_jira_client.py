@@ -12,6 +12,7 @@ from agent.jira.client import (
     _should_set_story_points,
     add_reviewed_comment,
     add_reviewed_label,
+    remove_reviewed_label,
     build_epic_jql,
     create_obs_story,
     days_since_last_agent_comment,
@@ -645,6 +646,48 @@ class TestAddReviewedLabel:
 
         called_labels = mock_issue.update.call_args[1]["fields"]["labels"]
         assert "cnv-grooming-agent-reviewed" in called_labels
+
+
+class TestRemoveReviewedLabel:
+    """Verify remove_reviewed_label removes the label idempotently."""
+
+    _CFG = {"grooming": {"reviewed_label": "cnv-grooming-agent-reviewed"}}
+
+    def test_removes_label_when_present(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.fields.labels = [
+            "cnv-observability",
+            "cnv-grooming-agent-reviewed",
+        ]
+        mock_client.issue.return_value = mock_issue
+
+        remove_reviewed_label(mock_client, self._CFG, "CNV-100")
+
+        mock_issue.update.assert_called_once_with(
+            fields={"labels": ["cnv-observability"]}
+        )
+
+    def test_no_update_when_label_absent(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.fields.labels = ["cnv-observability"]
+        mock_client.issue.return_value = mock_issue
+
+        remove_reviewed_label(mock_client, self._CFG, "CNV-100")
+
+        mock_issue.update.assert_not_called()
+
+    def test_uses_default_label_when_not_configured(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.fields.labels = ["cnv-grooming-agent-reviewed"]
+        mock_client.issue.return_value = mock_issue
+
+        remove_reviewed_label(mock_client, {}, "CNV-100")
+
+        called_labels = mock_issue.update.call_args[1]["fields"]["labels"]
+        assert "cnv-grooming-agent-reviewed" not in called_labels
 
 
 class TestAddReviewedComment:

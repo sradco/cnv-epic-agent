@@ -30,6 +30,7 @@ from agent.jira.client import (
     add_grooming_label,
     add_reviewed_comment,
     add_reviewed_label,
+    remove_reviewed_label,
     create_obs_story,
     days_since_last_agent_comment,
     fetch_epic_with_children,
@@ -974,6 +975,23 @@ def _process_epic(
             epic_key, STATUS_NOTHING_TO_DO,
         )
         story_lines.extend(_handle_reviewed(epic_key, app_cfg, ctx))
+    elif tally.status == STATUS_GROOMED:
+        # Stories were created — remove the reviewed label if present
+        # so the epic no longer appears "fully reviewed".
+        reviewed_label = app_cfg.grooming.reviewed_label
+        if ctx.apply:
+            try:
+                remove_reviewed_label(ctx.client, ctx.cfg, epic_key)
+            except Exception:
+                logger.warning(
+                    "[%s] Failed to remove reviewed label from %s",
+                    ctx.run_id, epic_key, exc_info=True,
+                )
+        else:
+            story_lines.append(
+                f"*Would remove '{reviewed_label}' label "
+                f"(stories were proposed).*"
+            )
 
     lines = epic_header + story_lines
 

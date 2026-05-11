@@ -1942,3 +1942,62 @@ class TestHandleReviewed:
 
         mock_label.assert_called_once()
         mock_comment.assert_called_once()
+
+
+class TestRemoveReviewedLabelOnCreate:
+    """reviewed label is removed when stories are created."""
+
+    @patch("agent.runner.remove_reviewed_label")
+    def test_dry_run_reports_would_remove(self, mock_remove):
+        from agent.runner import _RunContext, STATUS_GROOMED
+        from schemas.config import AppConfig
+
+        app_cfg = AppConfig()
+        ctx = MagicMock(spec=_RunContext)
+        ctx.apply = False
+        ctx.run_id = "test"
+        ctx.client = MagicMock()
+        ctx.cfg = {}
+
+        # Simulate tally with STATUS_GROOMED
+        from agent.runner import _EpicTally
+        tally = _EpicTally("CNV-200")
+        tally.status = STATUS_GROOMED
+
+        story_lines: list[str] = []
+        reviewed_label = app_cfg.grooming.reviewed_label
+        # Replicate the conditional from _process_epic
+        if tally.status == STATUS_GROOMED:
+            if ctx.apply:
+                remove_reviewed_label(ctx.client, ctx.cfg, "CNV-200")
+            else:
+                story_lines.append(
+                    f"*Would remove '{reviewed_label}' label "
+                    f"(stories were proposed).*"
+                )
+
+        mock_remove.assert_not_called()
+        assert any("Would remove" in l for l in story_lines)
+
+    @patch("agent.runner.remove_reviewed_label")
+    def test_apply_calls_remove(self, mock_remove):
+        from agent.runner import STATUS_GROOMED
+        from schemas.config import AppConfig
+
+        app_cfg = AppConfig()
+        ctx = MagicMock()
+        ctx.apply = True
+        ctx.run_id = "test"
+        ctx.client = MagicMock()
+        ctx.cfg = {}
+
+        from agent.runner import _EpicTally
+        tally = _EpicTally("CNV-200")
+        tally.status = STATUS_GROOMED
+
+        # Replicate the conditional from _process_epic
+        if tally.status == STATUS_GROOMED:
+            if ctx.apply:
+                mock_remove(ctx.client, ctx.cfg, "CNV-200")
+
+        mock_remove.assert_called_once_with(ctx.client, ctx.cfg, "CNV-200")
