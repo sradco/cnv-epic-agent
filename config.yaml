@@ -33,6 +33,8 @@ grooming:
   llm_clarity_check: true
   no_qe_label: "no-qe"
   no_doc_label: "no-doc"
+  reviewed_label: "cnv-grooming-agent-reviewed"
+  reviewed_cooldown_days: 14
 
 discovery:
   repos:

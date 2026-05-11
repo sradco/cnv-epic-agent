@@ -282,6 +282,43 @@ def add_grooming_comment(
     logger.info("Added grooming comment to %s", epic_key)
 
 
+def add_reviewed_label(
+    client: JIRA,
+    cfg: dict[str, Any],
+    epic_key: str,
+) -> None:
+    """Add the reviewed label to an epic if not already present."""
+    grooming_cfg = cfg.get("grooming", {})
+    label = grooming_cfg.get("reviewed_label", "cnv-grooming-agent-reviewed")
+    issue = client.issue(epic_key)
+    existing = getattr(issue.fields, "labels", []) or []
+    if label not in existing:
+        issue.update(fields={"labels": existing + [label]})
+        logger.info("Added '%s' label to %s", label, epic_key)
+
+
+@_retry_on_jira_error
+def add_reviewed_comment(
+    client: JIRA,
+    cfg: dict[str, Any],
+    epic_key: str,
+    version: str = "",
+    run_id: str = "",
+) -> None:
+    """Post a lightweight 'reviewed, nothing to do' comment."""
+    from datetime import date
+    date_str = date.today().isoformat()
+    version_part = f", version: CNV v{version}" if version else ""
+    run_part = f", run: {run_id}" if run_id else ""
+    comment_text = (
+        f"[Epic Agent] Reviewed on {date_str}"
+        f"{version_part}{run_part} — "
+        f"no observability gaps found. No new stories needed."
+    )
+    client.add_comment(epic_key, comment_text)
+    logger.info("Added reviewed comment to %s", epic_key)
+
+
 _AGENT_COMMENT_PREFIX = "[Epic Agent]"
 
 

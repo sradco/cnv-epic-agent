@@ -1868,3 +1868,77 @@ class TestPlanRoundTrip:
 
         assert "CNV-200" in collector
         assert collector["CNV-200"][0].summary == story.summary
+
+
+class TestHandleReviewed:
+    """_handle_reviewed posts label+comment with 2-week throttle."""
+
+    def _make_ctx(self, *, apply: bool, last_days: float | None):
+        from agent.runner import _RunContext
+        ctx = MagicMock(spec=_RunContext)
+        ctx.apply = apply
+        ctx.version = "5.0.0"
+        ctx.run_id = "test-run"
+        ctx.client = MagicMock()
+        ctx.cfg = {}
+        return ctx
+
+    def _make_app_cfg(self):
+        from schemas.config import AppConfig
+        return AppConfig()
+
+    @patch("agent.runner.days_since_last_agent_comment", return_value=None)
+    @patch("agent.runner.add_reviewed_label")
+    @patch("agent.runner.add_reviewed_comment")
+    def test_apply_first_time_adds_label_and_comment(
+        self, mock_comment, mock_label, _days,
+    ):
+        from agent.runner import _handle_reviewed
+        ctx = self._make_ctx(apply=True, last_days=None)
+        lines = _handle_reviewed("CNV-100", self._make_app_cfg(), ctx)
+
+        mock_label.assert_called_once()
+        mock_comment.assert_called_once()
+        assert any("label" in l and "comment" in l for l in lines)
+
+    @patch("agent.runner.days_since_last_agent_comment", return_value=5.0)
+    @patch("agent.runner.add_reviewed_label")
+    @patch("agent.runner.add_reviewed_comment")
+    def test_apply_within_cooldown_skips_comment(
+        self, mock_comment, mock_label, _days,
+    ):
+        from agent.runner import _handle_reviewed
+        ctx = self._make_ctx(apply=True, last_days=5.0)
+        lines = _handle_reviewed("CNV-100", self._make_app_cfg(), ctx)
+
+        mock_label.assert_called_once()
+        mock_comment.assert_not_called()
+        assert any("skipped" in l for l in lines)
+
+    @patch("agent.runner.days_since_last_agent_comment", return_value=None)
+    @patch("agent.runner.add_reviewed_label")
+    @patch("agent.runner.add_reviewed_comment")
+    def test_dry_run_does_not_call_jira(
+        self, mock_comment, mock_label, _days,
+    ):
+        from agent.runner import _handle_reviewed
+        ctx = self._make_ctx(apply=False, last_days=None)
+        lines = _handle_reviewed("CNV-100", self._make_app_cfg(), ctx)
+
+        mock_label.assert_not_called()
+        mock_comment.assert_not_called()
+        assert any("Would add" in l for l in lines)
+
+    @patch("agent.runner.days_since_last_agent_comment", return_value=15.0)
+    @patch("agent.runner.add_reviewed_label")
+    @patch("agent.runner.add_reviewed_comment")
+    def test_apply_past_cooldown_posts_comment(
+        self, mock_comment, mock_label, _days,
+    ):
+        """After cooldown (14 days) a new comment is posted."""
+        from agent.runner import _handle_reviewed
+        ctx = self._make_ctx(apply=True, last_days=15.0)
+        lines = _handle_reviewed("CNV-100", self._make_app_cfg(), ctx)
+
+        mock_label.assert_called_once()
+        mock_comment.assert_called_once()

@@ -10,6 +10,8 @@ from agent.jira.client import (
     _hash_summary,
     _normalize_summary,
     _should_set_story_points,
+    add_reviewed_comment,
+    add_reviewed_label,
     build_epic_jql,
     create_obs_story,
     days_since_last_agent_comment,
@@ -598,6 +600,80 @@ class TestFindOrCreateObsEpic:
         # Target Version field is used — not fixVersions.
         assert "fixVersions" not in fields
         assert fields["customfield_10855"] == {"name": "CNV v5.0.0"}
+
+
+class TestAddReviewedLabel:
+    """Verify add_reviewed_label adds the label idempotently."""
+
+    _CFG = {"grooming": {"reviewed_label": "cnv-grooming-agent-reviewed"}}
+
+    def test_adds_label_when_absent(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.fields.labels = ["cnv-observability"]
+        mock_client.issue.return_value = mock_issue
+
+        add_reviewed_label(mock_client, self._CFG, "CNV-100")
+
+        mock_issue.update.assert_called_once_with(
+            fields={"labels": [
+                "cnv-observability",
+                "cnv-grooming-agent-reviewed",
+            ]}
+        )
+
+    def test_no_update_when_label_present(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.fields.labels = [
+            "cnv-observability",
+            "cnv-grooming-agent-reviewed",
+        ]
+        mock_client.issue.return_value = mock_issue
+
+        add_reviewed_label(mock_client, self._CFG, "CNV-100")
+
+        mock_issue.update.assert_not_called()
+
+    def test_uses_default_label_when_not_configured(self):
+        mock_client = MagicMock()
+        mock_issue = MagicMock()
+        mock_issue.fields.labels = []
+        mock_client.issue.return_value = mock_issue
+
+        add_reviewed_label(mock_client, {}, "CNV-100")
+
+        called_labels = mock_issue.update.call_args[1]["fields"]["labels"]
+        assert "cnv-grooming-agent-reviewed" in called_labels
+
+
+class TestAddReviewedComment:
+    """Verify add_reviewed_comment posts the expected text."""
+
+    _CFG: dict = {}
+
+    def test_comment_contains_date_and_nothing_to_do(self):
+        mock_client = MagicMock()
+
+        add_reviewed_comment(
+            mock_client, self._CFG, "CNV-100",
+            version="5.0.0", run_id="abc123",
+        )
+
+        text = mock_client.add_comment.call_args[0][1]
+        assert "[Epic Agent]" in text
+        assert "no observability gaps found" in text
+        assert "CNV v5.0.0" in text
+        assert "abc123" in text
+
+    def test_comment_without_version(self):
+        mock_client = MagicMock()
+
+        add_reviewed_comment(mock_client, self._CFG, "CNV-100")
+
+        text = mock_client.add_comment.call_args[0][1]
+        assert "no observability gaps found" in text
+        assert "CNV v" not in text
 
 
 class TestDaysSinceLastAgentComment:

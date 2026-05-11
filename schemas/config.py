@@ -59,6 +59,8 @@ class GroomingConfig:
     llm_clarity_check: bool = True
     no_qe_label: str = "no-qe"
     no_doc_label: str = "no-doc"
+    reviewed_label: str = "cnv-grooming-agent-reviewed"
+    reviewed_cooldown_days: int = 14
 
 
 @dataclass
@@ -282,6 +284,15 @@ class AppConfig:
                 no_doc_label=str(
                     g.get("no_doc_label",
                            GroomingConfig.no_doc_label),
+                ),
+                reviewed_label=str(
+                    g.get("reviewed_label",
+                           GroomingConfig.reviewed_label),
+                ),
+                reviewed_cooldown_days=cls._parse_int(
+                    g.get("reviewed_cooldown_days",
+                           GroomingConfig.reviewed_cooldown_days),
+                    "grooming.reviewed_cooldown_days",
                 ),
             ),
             agent=AgentConfig(

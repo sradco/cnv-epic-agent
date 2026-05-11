@@ -28,6 +28,8 @@ from agent.discovery.discover import build_all_inventories
 from agent.jira.client import (
     add_grooming_comment,
     add_grooming_label,
+    add_reviewed_comment,
+    add_reviewed_label,
     create_obs_story,
     days_since_last_agent_comment,
     fetch_epic_with_children,
@@ -675,6 +677,60 @@ def _handle_grooming(
     return lines
 
 
+def _handle_reviewed(
+    epic_key: str,
+    app_cfg: Any,
+    ctx: _RunContext,
+) -> list[str]:
+    """Handle an epic with no observability gaps: label + throttled comment."""
+    lines: list[str] = []
+    reviewed_label = app_cfg.grooming.reviewed_label
+    cooldown = app_cfg.grooming.reviewed_cooldown_days
+    last_days = days_since_last_agent_comment(ctx.client, epic_key)
+    comment_due = last_days is None or last_days >= cooldown
+
+    if ctx.apply:
+        try:
+            add_reviewed_label(ctx.client, ctx.cfg, epic_key)
+            if comment_due:
+                add_reviewed_comment(
+                    ctx.client, ctx.cfg, epic_key,
+                    version=ctx.version or "",
+                    run_id=ctx.run_id,
+                )
+                lines.append(
+                    f"Added *{reviewed_label}* label and "
+                    f"reviewed comment to {epic_key}."
+                )
+            else:
+                lines.append(
+                    f"Label *{reviewed_label}* ensured on "
+                    f"{epic_key}; comment skipped "
+                    f"(last comment {last_days:.0f}d ago, "
+                    f"cooldown {cooldown}d)."
+                )
+        except Exception:
+            logger.error(
+                "[%s] Failed to label/comment %s as reviewed",
+                ctx.run_id, epic_key, exc_info=True,
+            )
+            lines.append("Failed to add reviewed label/comment.")
+    else:
+        if comment_due:
+            lines.append(
+                f"*Would add '{reviewed_label}' label and "
+                f"reviewed comment.*"
+            )
+        else:
+            lines.append(
+                f"*Would add '{reviewed_label}' label; "
+                f"comment skipped "
+                f"(last comment {last_days:.0f}d ago, "
+                f"cooldown {cooldown}d).*"
+            )
+    return lines
+
+
 def _process_epic(
     epic_issue: Any,
     ctx: _RunContext,
@@ -852,9 +908,10 @@ def _process_epic(
         ctx.counters.record_epic_status(
             epic_key, STATUS_NOTHING_TO_DO,
         )
+        reviewed_lines = _handle_reviewed(epic_key, app_cfg, ctx)
         return epic_header + [
-            "No stories to create for this epic.", "",
-        ]
+            "No stories to create for this epic.",
+        ] + reviewed_lines + [""]
 
     if ctx.version:
         try:
@@ -916,6 +973,7 @@ def _process_epic(
         ctx.counters.record_epic_status(
             epic_key, STATUS_NOTHING_TO_DO,
         )
+        story_lines.extend(_handle_reviewed(epic_key, app_cfg, ctx))
 
     lines = epic_header + story_lines
 
