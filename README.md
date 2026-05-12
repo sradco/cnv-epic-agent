@@ -223,13 +223,26 @@ version-scoped observability epic:
 
 Both dry-run and apply modes include a structured summary
 **at the top of the report**, right after the run metadata
-header:
+header. Epics are sorted **by status first, then by component**.
 
-- **Per-epic table** — sorted by status (errors and grooming
-  first), with clickable links to each epic's detail section.
-  Columns: Epic, Status, category counts, and Total.
-  Status values: `error`, `llm error`, `needs grooming`,
-  `nothing to do`, or `groomed`.
+The summary is split into four tables:
+
+- **Fix Version Epics** — epics with a `fixVersion` set
+- **Target Version Epics** — epics with a Target Version
+  but no fixVersion
+- **Unversioned Epics** — epics with no version set
+- **Agent Proposed Stories** — per-epic breakdown of proposed
+  story counts by category (metrics, alerts, dashboards,
+  telemetry, QE, Docs), plus an **observability rollup**
+  column (sum of metrics + alerts + dashboards + telemetry)
+
+Each table shows a **Component** column only when more than
+one distinct component is present across its epics.
+
+Story point columns show `existing (+proposed)` totals for
+Dev, QE, and Docs. Epics with `no-qe` or `no-doc` labels
+show those values as `—` instead of `0`.
+
 - **Overall statistics** — epics processed, stories
   created/would create, duplicates skipped, LLM errors,
   story points set/failed
@@ -251,11 +264,17 @@ cnv-epic-agent/
   agent/              — CLI agent (LLM-assisted)
     cli.py            — CLI entrypoint
     runner.py         — Orchestrator: discover -> analyze -> plan -> apply
+                        Returns RunResult (report + tallies + plan_collector)
     analyzer/         — Gap analysis (analysis.py, formatter.py)
     planner/          — LLM story composition (planner.py, llm.py)
     jira/             — Jira REST client (auth, query, create)
     discovery/        — Code scanning (metrics, alerts, dashboards,
                         runbooks, metrics.md parsing)
+    export/           — Report export formats
+      html_report.py  — Markdown → self-contained HTML with collapsed
+                        epic sections
+      xlsx_report.py  — Multi-sheet XLSX workbook (Run Info / Summary
+                        / Stories) via openpyxl
   schemas/            — Shared data contracts
     config.py         — Typed AppConfig dataclass hierarchy
     stories.py        — StoryPayload, JSON schemas
@@ -308,6 +327,9 @@ python -m agent.cli --fix-version "CNV v4.23.0" --label gpu
 # Run only specific categories
 python -m agent.cli --version 4.22 --categories metrics,docs,qe
 
+# 'observability' is a shorthand for metrics,alerts,dashboards,telemetry
+python -m agent.cli --version 4.22 --categories observability,qe
+
 # Apply: create stories on Jira
 python -m agent.cli --epic CNV-84388 --version 4.22 --apply
 
@@ -322,6 +344,27 @@ python -m agent.cli --version 4.22 --config /path/to/config.yaml
 
 # Force fresh inventory scan (skip cache)
 python -m agent.cli --version 4.22 --no-cache
+
+# Save proposed stories to a plan file (JSON) for review
+python -m agent.cli --version 4.22 --save-plan plan.json
+
+# Apply a previously saved plan (create stories without re-running LLM)
+python -m agent.cli --apply-plan plan.json
+
+# Apply only specific epics from a saved plan
+python -m agent.cli --apply-plan plan.json --epic CNV-84388
+
+# Generate a Markdown report file
+python -m agent.cli --version 4.22 --output report
+
+# Generate a self-contained HTML report (collapsed epic sections)
+python -m agent.cli --version 4.22 --output report.html
+# or equivalently:
+python -m agent.cli --version 4.22 --output report --format html
+
+# Generate a multi-sheet XLSX workbook
+# (Run Info / Summary / Stories sheets)
+python -m agent.cli --version 4.22 --output report.xlsx
 ```
 
 The CLI agent supports any LLM provider via
@@ -380,7 +423,7 @@ All settings are in `config.yaml` (override with `--config`):
 |---------|---------|
 | `jira:` | JQL templates, default project |
 | `creation:` | Project, component, labels, epic format, story points field, observability epic label |
-| `grooming:` | Label, skip label, thresholds, LLM clarity check, comment cooldown |
+| `grooming:` | Label, skip label, reviewed label, thresholds, LLM clarity check, comment cooldown, reviewed cooldown |
 | `discovery:` | Upstream repo URLs for inventory scanning (metrics, alerts, dashboards, runbooks, metrics.md) |
 | `telemetry:` | CMO allowlist URL |
 | `analysis:` | Need-assessment keywords, coverage keywords |
@@ -427,6 +470,64 @@ agent:
 Set `feedback_repo: ""` to disable the link (footer still shows
 attribution). The footer is appended at the Jira API layer only
 and is never included in LLM prompts.
+
+## Two-Phase Workflow (Plan → Review → Apply)
+
+The agent supports a plan/apply split so you can review
+proposed stories before they are created on Jira:
+
+```bash
+# Phase 1: dry-run and save proposed stories
+python -m agent.cli --version 4.22 --save-plan plan.json
+
+# Review plan.json (one entry per epic, stories listed)
+
+# Phase 2: apply all stories from the plan
+python -m agent.cli --apply-plan plan.json
+
+# Or apply only a subset of epics
+python -m agent.cli --apply-plan plan.json --epic CNV-84388 CNV-90000
+```
+
+`--save-plan` writes a JSON file with `plan_version`,
+`created_at`, `version`, and an `epics` list. Each entry
+has the epic key and the proposed stories (category,
+summary, description, story points, reasoning).
+
+`--apply-plan` loads the file, deduplicates each story
+against existing Jira children, and creates any that are
+not already present — without calling the LLM again.
+
+## Output Formats
+
+The report is always printed to stdout. Use `--output` to
+also write it to a file.
+
+| Flag | Output |
+|------|--------|
+| `--output report` | `report-<timestamp>.md` |
+| `--output report.html` | `report-<timestamp>.html` (self-contained) |
+| `--output report.xlsx` | `report-<timestamp>.xlsx` (XLSX workbook) |
+| `--format html` | force HTML even without `.html` extension |
+
+### HTML report
+
+Produced by `agent/export/html_report.py`. All epic detail
+sections are collapsed by default (`<details>`/`<summary>`).
+The file is self-contained (no external CSS/JS).
+
+### XLSX workbook
+
+Produced by `agent/export/xlsx_report.py` using `openpyxl`.
+Three sheets:
+
+| Sheet | Content |
+|-------|---------|
+| **Run Info** | Key/value metadata: date, version, model, mode, categories, run ID |
+| **Summary** | One row per epic — component, status, fix/target version, SP columns (existing + proposed), Jira hyperlinks |
+| **Stories** | One row per proposed story — epic key, component, category, summary, SP, reasoning |
+
+The Stories sheet is omitted when no stories were proposed.
 
 ## Running Tests
 
