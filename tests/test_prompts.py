@@ -571,6 +571,37 @@ class TestClarityCheckPrompt:
         assert "5 more" in prompt
 
 
+class TestObservabilityRuleGuardrails:
+    """Spot-check that key LLM guardrail phrases are present in the prompt
+    so regressions in templates.py are caught before a live LLM run."""
+
+    def _obs_prompt(self, categories=("metrics", "alerts", "dashboards")):
+        return get_system_prompt(list(categories))
+
+    def test_external_component_rule_present(self):
+        prompt = self._obs_prompt()
+        assert "MTV" in prompt or "external system" in prompt.lower()
+
+    def test_ui_epic_backend_ownership_question_present(self):
+        prompt = self._obs_prompt()
+        assert (
+            "backend controller" in prompt.lower()
+            or "component that owns" in prompt.lower()
+        )
+
+    def test_bad_example_virtual_appliance_present(self):
+        prompt = self._obs_prompt()
+        assert "virtual appliance" in prompt.lower()
+
+    def test_bad_example_internal_refactoring_present(self):
+        prompt = self._obs_prompt()
+        assert "HyperConverged API v1" in prompt or "refactoring" in prompt.lower()
+
+    def test_bad_example_windows_efi_present(self):
+        prompt = self._obs_prompt()
+        assert "Windows EFI" in prompt or "Tekton" in prompt
+
+
 if __name__ == "__main__":
     import sys
     import pytest

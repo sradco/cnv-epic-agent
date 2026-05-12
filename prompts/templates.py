@@ -300,6 +300,20 @@ NOTHING. There is no backend runtime behavior to instrument. \
   * If UNSURE whether a backend component owns the work: \
 propose NOTHING — do not invent metrics for an owner that \
 may not exist in this epic's scope.
+- UI epics that **surface data from an external system** \
+(MTV / Migration Toolkit for Virtualization, Tekton, ODF, \
+Multus, OpenShift Virtualization DataImportCron, etc.) are \
+NOT the same as UI epics that trigger new KubeVirt backend \
+code. When the "backend" work is done by a separate \
+component that KubeVirt/CNV does not own, this epic's \
+scope is limited to the UI layer. Do NOT propose \
+metrics, alerts, or dashboards for the operations \
+performed by that external component — those are \
+instrumented (or not) by the component that owns them. \
+Ask: "Is the backend controller/operator being \
+introduced or modified in THIS epic, in THIS component?" \
+If the answer is no (the backend is MTV, Tekton, ODF, or \
+any other external project), propose NOTHING.
 """
 
 _FEW_SHOT_EXAMPLES = """\
@@ -376,6 +390,22 @@ own or execute the pipeline. The Tekton pipeline is owned \
 by a backend component (kubevirt/tekton-tasks) that is \
 outside this epic's scope. No backend code lives in the \
 kubevirt-plugin — propose NOTHING.
+
+BAD: Epic is in component "CNV User Experience / CNV User \
+Interface". Epic title: "UI for virtual appliances". \
+Description says users can browse and import virtual \
+appliances via the console. Proposed \
+`kubevirt_virtual_appliance_import_total`, \
+`kubevirt_virtual_appliance_import_duration_seconds`, \
+`kubevirt_virtual_appliance_count` metrics and two alerts \
+(`KubeVirtVirtualApplianceImportFailed`, \
+`KubeVirtVirtualApplianceStuckInImporting`). Wrong — \
+virtual appliance import and lifecycle management is owned \
+by MTV (Migration Toolkit for Virtualization), an external \
+component. The CNV UI epic only adds a view/surface in the \
+OCP console; it does not introduce a new backend controller \
+or reconcile loop in KubeVirt. Instrumenting appliance \
+import operations is MTV's responsibility. Propose NOTHING.
 
 GOOD: Epic is in component "CNV User Interface". Epic \
 introduces a new "Live Migrate VM" button that calls a new \
