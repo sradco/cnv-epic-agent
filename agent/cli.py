@@ -248,34 +248,70 @@ def main() -> None:
             save_plan_path=save_plan_path,
         )
 
-    # Auto-detect html format from the output filename extension so
-    # --format html is not needed when --output ends with .html.
-    output_format = args.format
-    if args.output and os.path.splitext(args.output)[1].lower() == ".html":
-        output_format = "html"
+    log = logging.getLogger(__name__)
 
+    # Auto-detect format from the output filename extension.
+    output_format = args.format
+    if args.output:
+        ext_lower = os.path.splitext(args.output)[1].lower()
+        if ext_lower == ".html":
+            output_format = "html"
+        elif ext_lower == ".xlsx":
+            output_format = "xlsx"
+
+    # Render the markdown / html text for console output.
     if output_format == "html":
         from agent.export.html_report import markdown_to_html
-        rendered = markdown_to_html(report)
+        rendered = markdown_to_html(report.report)
+    elif output_format == "xlsx":
+        rendered = report.report   # print markdown to console
     else:
-        rendered = report
+        rendered = report.report
 
     print(rendered)
 
     if args.output is not None:
-        # args.output is "" when --output is given without a filename.
-        ext = ".html" if output_format == "html" else ".md"
-        if args.output:
-            base, _ext = os.path.splitext(args.output)
-            output_path = f"{base}-{_run_timestamp}{ext}"
+        if output_format == "xlsx":
+            # Write XLSX workbook (no timestamp suffix for xlsx — the
+            # base name already identifies the run).
+            if args.output:
+                base, _ = os.path.splitext(args.output)
+                xlsx_path = f"{base}-{_run_timestamp}.xlsx"
+            else:
+                xlsx_path = f"report-{_run_timestamp}.xlsx"
+
+            from agent.export.xlsx_report import build_xlsx
+            jira_url = ""
+            try:
+                import yaml
+                with open(args.config or "config.yaml", encoding="utf-8") as f:
+                    _cfg = yaml.safe_load(f)
+                jira_url = _cfg.get("jira", {}).get(
+                    "url", "https://redhat.atlassian.net"
+                )
+            except Exception:
+                pass
+
+            build_xlsx(
+                xlsx_path,
+                metadata=report.metadata,
+                tallies=report.tallies,
+                plan_collector=report.plan_collector,
+                jira_url=jira_url,
+            )
+            log.info("XLSX report written to %s", xlsx_path)
         else:
-            output_path = f"report-{_run_timestamp}{ext}"
-        with open(output_path, "w", encoding="utf-8") as fh:
-            fh.write(rendered)
-            fh.write("\n")
-        logging.getLogger(__name__).info(
-            "Report written to %s", output_path,
-        )
+            # args.output is "" when --output is given without a filename.
+            ext = ".html" if output_format == "html" else ".md"
+            if args.output:
+                base, _ = os.path.splitext(args.output)
+                output_path = f"{base}-{_run_timestamp}{ext}"
+            else:
+                output_path = f"report-{_run_timestamp}{ext}"
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write(rendered)
+                fh.write("\n")
+            log.info("Report written to %s", output_path)
 
 
 if __name__ == "__main__":

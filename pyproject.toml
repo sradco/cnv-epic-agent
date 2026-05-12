@@ -7,6 +7,7 @@ dependencies = [
     "jira>=3.8",
     "litellm>=1.40",
     "mistune>=3.0",
+    "openpyxl>=3.1.5",
     "pyyaml>=6.0",
 ]
 

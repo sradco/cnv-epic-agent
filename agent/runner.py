@@ -49,6 +49,32 @@ from schemas.stories import StoryPayload
 
 logger = logging.getLogger(__name__)
 
+
+class RunResult:
+    """Value object returned by ``run()`` and ``apply_plan()``.
+
+    Carries both the rendered markdown report and the structured data
+    needed for secondary exports (XLSX, etc.).
+    """
+
+    def __init__(
+        self,
+        report: str,
+        tallies: list[Any],
+        plan_collector: dict[str, list[StoryPayload]],
+        metadata: dict[str, str],
+    ) -> None:
+        self.report = report
+        self.tallies = tallies
+        self.plan_collector = plan_collector
+        self.metadata = metadata
+
+    def __str__(self) -> str:
+        return self.report
+
+    def __contains__(self, item: object) -> bool:
+        return item in self.report
+
 STATUS_GROOMED = "groomed"
 STATUS_NEEDS_GROOMING = "needs grooming"
 STATUS_NOTHING_TO_DO = "nothing to do"
@@ -809,6 +835,16 @@ def _process_epic(
             else:
                 tally.target_version = str(tv_raw)
 
+    # Populate components here, before the grooming check, so that even
+    # epics that exit early (grooming flag, skip, error) carry component
+    # information into the report tables.
+    raw_components = getattr(fields, "components", None) or []
+    tally.components = [
+        c.get("name", "") if isinstance(c, dict) else getattr(c, "name", str(c))
+        for c in raw_components
+        if (c.get("name", "") if isinstance(c, dict) else getattr(c, "name", ""))
+    ]
+
     flagged, grooming_reason = _check_grooming(
         epic, children, cfg, app_cfg, ctx,
         use_llm=use_llm, model=model, temperature=temperature,
@@ -1098,9 +1134,9 @@ def _build_report_summary(
         # 2. No fixVersion, has targetVersion → "Target Version Epics"
         # 3. Neither → "Unversioned Epics"
         def _tally_sort_key(t: _EpicTally) -> tuple:
-            # Primary: first component name (alphabetical), empty sorts last.
+            # Primary: status order, then component (empty sorts last), then key.
             comp = t.components[0] if t.components else "\xff"
-            return (comp, _STATUS_ORDER.get(t.status, 5), t.key)
+            return (_STATUS_ORDER.get(t.status, 5), comp, t.key)
 
         fix_ver_tallies = sorted(
             [t for t in counters.epic_tallies if t.fix_version],
@@ -1417,7 +1453,7 @@ def apply_plan(
     *,
     config_path: str | None = None,
     epic_keys: list[str] | None = None,
-) -> str:
+) -> RunResult:
     """Apply a saved dry-run plan: create stories without re-running the LLM.
 
     Loads *plan_path*, deduplicates each story against existing Jira
@@ -1539,7 +1575,18 @@ def apply_plan(
     summary_lines = _build_report_summary(
         ctx.counters, len(all_entries), apply=True,
     )
-    return "\n".join(lines[:3] + summary_lines + lines[3:])
+    report = "\n".join(lines[:3] + summary_lines + lines[3:])
+    return RunResult(
+        report=report,
+        tallies=list(ctx.counters.epic_tallies),
+        plan_collector={},
+        metadata={
+            "Date": run_timestamp,
+            "Plan file": plan_path,
+            "Version": version,
+            "Run ID": run_id,
+        },
+    )
 
 
 def run(
@@ -1558,7 +1605,7 @@ def run(
     config_path: str | None = None,
     no_cache: bool = False,
     save_plan_path: str | None = None,
-) -> str:
+) -> RunResult:
     """Run the full epic agent pipeline.
 
     Parameters:
@@ -1655,7 +1702,12 @@ def run(
     )
 
     if not epics_to_process:
-        return "No epics found to process."
+        return RunResult(
+            report="No epics found to process.",
+            tallies=[],
+            plan_collector={},
+            metadata={},
+        )
 
     ctx = _RunContext(
         client=client,
@@ -1707,11 +1759,9 @@ def run(
         )
     header_lines.append("")
 
-    # plan_collector accumulates proposed stories per epic when
-    # --save-plan is requested, keyed by epic key.
-    plan_collector: dict[str, list[StoryPayload]] | None = (
-        {} if save_plan_path else None
-    )
+    # plan_collector always accumulates proposed stories so they are
+    # available for XLSX/CSV export regardless of --save-plan.
+    plan_collector: dict[str, list[StoryPayload]] = {}
 
     epic_detail_lines: list[str] = []
     for epic_issue in epics_to_process:
@@ -1725,7 +1775,7 @@ def run(
         )
         epic_detail_lines.extend(epic_lines)
 
-    if save_plan_path and plan_collector is not None:
+    if save_plan_path:
         plan_data: dict[str, Any] = {
             "plan_version": _PLAN_VERSION,
             "created_at": run_timestamp,
@@ -1759,4 +1809,22 @@ def run(
         ctx.counters, len(epics_to_process), apply,
     )
 
-    return "\n".join(header_lines + summary_lines + epic_detail_lines)
+    report = "\n".join(header_lines + summary_lines + epic_detail_lines)
+
+    run_metadata = {
+        "Date": run_timestamp,
+        "Version": version or "(not set)",
+        "Model": model,
+        "Mode": "LLM-assisted" if use_llm else "template-based",
+        "Apply": str(apply),
+        "Categories": ", ".join(enabled_categories),
+        "Filters": ", ".join(filters_active) if filters_active else "(none)",
+        "Run ID": run_id,
+    }
+
+    return RunResult(
+        report=report,
+        tallies=list(ctx.counters.epic_tallies),
+        plan_collector=plan_collector,
+        metadata=run_metadata,
+    )
