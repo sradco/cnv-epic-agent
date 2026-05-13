@@ -130,7 +130,7 @@ class _EpicTally:
         "qe_sp_existing", "qe_sp_proposed",
         "docs_sp_existing", "docs_sp_proposed",
         "has_no_qe", "has_no_doc",
-        "components", "labels",
+        "components", "labels", "grooming_reason",
     )
 
     def __init__(
@@ -152,6 +152,7 @@ class _EpicTally:
         self.has_no_doc: bool = False
         self.components: list[str] = []
         self.labels: list[str] = []
+        self.grooming_reason: str = ""
 
     def record(self, category: str) -> None:
         self.by_category[category] = (
@@ -659,6 +660,8 @@ def _handle_grooming(
     ctx.counters.record_epic_status(
         epic_key, STATUS_NEEDS_GROOMING,
     )
+    tally = ctx.counters._get_or_create_tally(epic_key)
+    tally.grooming_reason = grooming_reason
     lines.append(f'<a id="{_epic_anchor(epic_key)}"></a>')
     lines.append(
         f"## {epic_link} — {epic_summary} — NEEDS GROOMING"
@@ -1547,13 +1550,26 @@ def apply_plan(
         )
         return "\n".join(lines + ["**ERROR**: Could not resolve observability epic."])
 
+    # ── Grooming pass ────────────────────────────────────────────────
+    # Post grooming labels and throttled comments for epics that were
+    # flagged during the dry-run and saved in plan["grooming_epics"].
+    grooming_entries = plan.get("grooming_epics", [])
+    for ge in grooming_entries:
+        g_key = ge.get("epic_key", "")
+        g_summary = ge.get("epic_summary", "")
+        g_reason = ge.get("reason", "This epic needs more detail before stories can be generated.")
+        if filter_set and g_key.upper() not in filter_set:
+            continue
+        _handle_grooming(g_key, g_summary, g_reason, app_cfg, ctx)
+        lines.append(f"- Grooming: processed {g_key}")
+
     all_entries = plan.get("epics", [])
     if filter_set:
         all_entries = [
             e for e in all_entries
             if e.get("epic_key", "").upper() in filter_set
         ]
-        if not all_entries:
+        if not all_entries and not grooming_entries:
             return "\n".join(
                 lines + [
                     f"**No matching epics found in plan for: "
@@ -1807,11 +1823,23 @@ def run(
         epic_detail_lines.extend(epic_lines)
 
     if save_plan_path:
+        # Collect grooming-flagged epics with their reason so apply_plan
+        # can post the grooming label and throttled comment.
+        grooming_entries = [
+            {
+                "epic_key": t.key,
+                "epic_summary": t.summary,
+                "reason": t.grooming_reason,
+            }
+            for t in ctx.counters.epic_tallies
+            if t.status == STATUS_NEEDS_GROOMING
+        ]
         plan_data: dict[str, Any] = {
             "plan_version": _PLAN_VERSION,
             "created_at": run_timestamp,
             "run_id": run_id,
             "version": version,
+            "grooming_epics": grooming_entries,
             "epics": [
                 {
                     "epic_key": epic_key,

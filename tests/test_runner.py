@@ -2080,6 +2080,80 @@ class TestRemoveReviewedLabelOnCreate:
         mock_remove.assert_not_called()
         assert any("Would remove" in l for l in story_lines)
 
+    def test_grooming_reason_saved_in_plan(self):
+        """grooming_epics are written to plan when save_plan_path is set."""
+        from agent.runner import (
+            _PLAN_VERSION, _EpicTally, STATUS_NEEDS_GROOMING,
+            load_plan, save_plan,
+        )
+        import json, tempfile, os
+
+        plan = {
+            "plan_version": _PLAN_VERSION,
+            "created_at": "2026-05-13 00:00 UTC",
+            "run_id": "x",
+            "version": "5.0",
+            "grooming_epics": [
+                {
+                    "epic_key": "CNV-999",
+                    "epic_summary": "Sparse epic",
+                    "reason": "Epic has no description and no children.",
+                }
+            ],
+            "epics": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "plan.json")
+            save_plan(plan, path)
+            loaded = load_plan(path)
+
+        assert "grooming_epics" in loaded
+        assert loaded["grooming_epics"][0]["epic_key"] == "CNV-999"
+        assert "reason" in loaded["grooming_epics"][0]
+
+    @patch("agent.runner.add_grooming_label")
+    @patch("agent.runner.add_grooming_comment")
+    @patch("agent.runner.days_since_last_agent_comment", return_value=None)
+    @patch("agent.runner.find_or_create_obs_epic")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner._load_config")
+    def test_apply_plan_posts_grooming_comment(
+        self,
+        mock_cfg, mock_client, mock_obs_epic,
+        mock_days, mock_comment, mock_label,
+    ):
+        """apply_plan() posts grooming labels/comments for plan's grooming_epics."""
+        import json, tempfile, os
+        from agent.runner import _PLAN_VERSION, apply_plan
+        from schemas.config import AppConfig
+
+        mock_cfg.return_value = AppConfig()
+        mock_obs_epic.return_value = {"key": "CNV-OBS"}
+        mock_client.return_value = MagicMock()
+
+        plan = {
+            "plan_version": _PLAN_VERSION,
+            "created_at": "2026-05-13 00:00 UTC",
+            "run_id": "x",
+            "version": "5.0",
+            "grooming_epics": [
+                {
+                    "epic_key": "CNV-999",
+                    "epic_summary": "Sparse epic",
+                    "reason": "Epic has no description.",
+                }
+            ],
+            "epics": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "plan.json")
+            with open(path, "w") as f:
+                json.dump(plan, f)
+            apply_plan(path)
+
+        mock_label.assert_called_once()
+        mock_comment.assert_called_once()
+
     @patch("agent.runner.remove_reviewed_label")
     def test_apply_calls_remove(self, mock_remove):
         from agent.runner import STATUS_GROOMED
