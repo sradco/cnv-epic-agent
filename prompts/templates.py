@@ -420,6 +420,20 @@ GOOD: Epic adds GPU passthrough. No existing GPU metrics \
 in inventory. Proposed `kubevirt_vmi_gpu_allocated` gauge \
 and `KubeVirtVMIGPUAllocationFailed` alert. Correct — \
 genuinely new capability with no existing coverage.
+
+BAD: Epic adds role aggregation opt-out feature. This \
+response proposed `kubevirt_hco_role_aggregation_enabled` \
+metric and `KubeVirtHCORoleAggregationDisabled` alert \
+(observability stories). It then also proposed a QE story \
+"Verify kubevirt_hco_role_aggregation_enabled metric and \
+alert" under the same feature epic. Wrong — the QE story \
+covers the observability implementation stories, which \
+will live in the observability epic, not this feature \
+epic. There is no implementation story in this feature \
+epic for the QE story to reference. Do NOT propose QE \
+for observability stories you are generating in the same \
+response. The QE story would have no parent and sits in \
+the wrong epic.
 """
 
 _DOCS_RULES = """\
@@ -481,12 +495,16 @@ rollback test coverage. Upgrade/rollback testing is only \
 relevant for features with persistent state or APIs.
 - Do NOT propose QE stories for child issues that are \
 already Closed, Done, Resolved, or Won't Fix.
-- REQUIRED: When this response proposes any new metrics or \
-alerts — whether from gap analysis or from your own \
-observability proposals — you MUST also propose QE stories \
-to verify them. Do not skip QE because the observability \
-stories are not yet in Jira; treat your own proposals as \
-planned work that needs test coverage.
+- SCOPE RULE (critical): QE stories must ONLY cover work \
+that belongs to THIS feature epic — its existing child \
+issues and any feature dev work described in the epic. \
+Do NOT propose QE stories for observability items \
+(metrics, alerts, dashboards) that you propose in the \
+same response. Those observability stories will land in a \
+separate observability epic and be verified there. \
+Proposing QE for your own observability proposals creates \
+orphaned test stories in the wrong epic with no parent \
+implementation story.
 - Test categories: metric unit tests (new only), alert rule \
 tests (new only), dashboard verification, end-to-end pipeline.
 - Do NOT create a single monolithic QE story.
