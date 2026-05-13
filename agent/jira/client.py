@@ -931,7 +931,14 @@ def create_obs_story(
                 except Exception:
                     pass
 
-    # Link to the source feature epic
+    # Link to the source feature epic via "Relates" — only needed for
+    # observability stories, which live under the observability epic and
+    # need a cross-link back to the originating feature epic.  QE and
+    # Docs stories are already children of the source feature epic
+    # (parent_epic_key is set), so a "Relates" link would be redundant.
+    if parent_epic_key:
+        return issue, warnings
+
     for attempt in range(3):
         try:
             client.create_issue_link(
@@ -950,17 +957,20 @@ def create_obs_story(
                 )
                 time.sleep(wait)
             else:
+                import traceback as _tb
+                _exc_text = _tb.format_exc().strip().splitlines()[-1]
                 logger.error(
-                    "Failed to link %s to %s after 3 attempts",
-                    issue.key, source_epic_key, exc_info=True,
+                    "Failed to link %s to %s after 3 attempts: %s",
+                    issue.key, source_epic_key, _exc_text, exc_info=True,
                 )
                 warnings.relates_link_failed = True
                 try:
                     client.add_comment(
                         issue.key,
                         f"⚠ Failed to create '{relates_link_type}' "
-                        f"link to {source_epic_key}. "
-                        f"Please add manually.",
+                        f"link to {source_epic_key} after 3 attempts.\n"
+                        f"Error: {_exc_text}\n"
+                        f"Please add the link manually.",
                     )
                 except Exception:
                     pass
