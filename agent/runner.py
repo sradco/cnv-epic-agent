@@ -912,6 +912,19 @@ def _process_epic(
             c for c in epic_categories if c != "qe"
         ]
 
+    # The observability epic (identified by the cnv-observability label)
+    # contains implementation stories created by this agent.  Generating
+    # QE or Docs stories there creates a circular dependency — the agent
+    # would be writing test stories for its own output.  Strip both
+    # categories when processing the observability epic itself.
+    obs_epic_label = cfg.get("creation", {}).get(
+        "epic_label", "cnv-observability",
+    )
+    if obs_epic_label in tally.labels:
+        epic_categories = [
+            c for c in epic_categories if c not in ("qe", "docs")
+        ]
+
     if use_llm:
         try:
             stories = compose_stories(

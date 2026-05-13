@@ -1776,6 +1776,91 @@ class TestCategoryGates:
         assert "docs" not in cats_used
 
 
+class TestObsEpicCategoryGate:
+    """QE and Docs categories are stripped for the observability epic."""
+
+    def _make_epic_issue(self, key="CNV-OBS-1", labels=None):
+        epic_issue = MagicMock()
+        epic_issue.key = key
+        epic_issue.fields = MagicMock()
+        epic_issue.fields.summary = "Observability epic"
+        epic_issue.fields.description = (
+            "Auto-generated observability stories for CNV 5.0"
+        )
+        epic_issue.fields.fixVersions = []
+        epic_issue.fields.components = []
+        epic_issue.fields.labels = labels or ["cnv-observability",
+                                               "epic-agent-generated"]
+        epic_issue.fields.status = MagicMock()
+        epic_issue.fields.status.name = "In Progress"
+        return epic_issue
+
+    @patch("agent.runner._load_config")
+    @patch("agent.runner.get_jira_client")
+    @patch("agent.runner.build_all_inventories", return_value={})
+    @patch("agent.runner.fetch_epic_with_children")
+    @patch("agent.runner.build_analysis_result")
+    @patch("agent.runner.compose_stories")
+    @patch("agent.runner.find_broad_matching_stories", return_value=[])
+    def test_obs_epic_strips_qe_and_docs(
+        self,
+        mock_broad, mock_compose, mock_analysis,
+        mock_fetch, mock_inv, mock_jira, mock_config,
+    ):
+        from agent.runner import run
+        from schemas.issue_doc import IssueDoc
+        from schemas.stories import StoryPayload
+
+        mock_config.return_value = _minimal_cfg()
+        mock_jira.return_value = MagicMock()
+
+        epic_issue = self._make_epic_issue()
+        mock_jira.return_value.search_issues.return_value = [epic_issue]
+
+        _LONG_DESC = "A" * 100
+        mock_fetch.return_value = (
+            IssueDoc(
+                key="CNV-OBS-1",
+                summary="Observability epic",
+                description=_LONG_DESC,
+                labels=["cnv-observability", "epic-agent-generated"],
+            ),
+            [],
+        )
+        mock_analysis.return_value = {
+            "gaps": ["metrics"],
+            "epic_labels": ["cnv-observability"],
+            "epic_components": [],
+            "domain_keywords": [],
+        }
+        mock_compose.return_value = [
+            StoryPayload(
+                category="metrics",
+                summary="Add metric X",
+                description="desc",
+                story_points=3,
+                reasoning="r",
+            )
+        ]
+
+        run(
+            version="5.0",
+            use_llm=True,
+            categories=["metrics", "qe", "docs"],
+        )
+
+        assert mock_compose.called, "compose_stories was not called"
+        call_kwargs = mock_compose.call_args[1]
+        cats_used = call_kwargs.get("categories", [])
+        assert "qe" not in cats_used, (
+            f"qe must be stripped for obs epic, got {cats_used}"
+        )
+        assert "docs" not in cats_used, (
+            f"docs must be stripped for obs epic, got {cats_used}"
+        )
+        assert "metrics" in cats_used
+
+
 class TestFeedbackCount:
     """Tests for _fetch_open_feedback_count."""
 
