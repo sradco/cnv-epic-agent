@@ -1485,6 +1485,41 @@ class TestBuildReportSummaryTwoTables:
         text = "\n".join(lines)
         assert "Component" not in text
 
+    def test_labels_col_shows_cnv_observability(self):
+        """cnv-observability label appears in the Labels column."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t = _EpicTally("CNV-400", status="groomed")
+        t.labels = ["cnv-observability", "cnv-grooming-agent"]
+        c = _RunCounters()
+        c.epic_tallies = [t]
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "Labels" in text
+        assert "cnv-observability" in text
+
+    def test_labels_col_empty_when_no_notable_labels(self):
+        """Labels column header present but cell empty when no notable labels."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t = _EpicTally("CNV-401", status="groomed")
+        t.labels = ["cnv-grooming-agent", "some-team-label"]
+        c = _RunCounters()
+        c.epic_tallies = [t]
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "Labels" in text
+        assert "cnv-grooming-agent" not in text
+        assert "some-team-label" not in text
+
+    def test_labels_col_empty_when_no_labels(self):
+        """Labels column header present and cell empty when labels list is empty."""
+        from agent.runner import _EpicTally, _RunCounters, _build_report_summary
+        t = _EpicTally("CNV-402", status="groomed")
+        c = _RunCounters()
+        c.epic_tallies = [t]
+        lines = _build_report_summary(c, 1, apply=False)
+        text = "\n".join(lines)
+        assert "Labels" in text
+
     def test_observability_rollup_column_present(self):
         """observability column sums metrics+alerts+dashboards+telemetry."""
         from agent.runner import _EpicTally, _RunCounters, _build_report_summary

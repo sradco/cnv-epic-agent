@@ -119,6 +119,18 @@ def main() -> None:
         help="Use template-based stories instead of LLM",
     )
     parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        default=False,
+        help=(
+            "Fetch epics and emit only the Summary sheet (XLSX) or "
+            "the summary tables (markdown/HTML). Skips LLM, inventory "
+            "scan, and story generation. Proposed-SP columns are omitted "
+            "from the XLSX Summary sheet. Useful for a quick inventory "
+            "of epics with existing story points."
+        ),
+    )
+    parser.add_argument(
         "--no-cache",
         action="store_true",
         default=False,
@@ -230,6 +242,9 @@ def main() -> None:
             else:
                 save_plan_path = f"plan-{_run_timestamp}.json"
 
+        # --summary-only implies no LLM and no story generation.
+        use_llm = not args.no_llm and not args.summary_only
+
         report = run(
             epic_keys=args.epic,
             jql=args.jql,
@@ -241,7 +256,7 @@ def main() -> None:
             labels=args.label,
             apply=args.apply,
             model=args.model,
-            use_llm=not args.no_llm,
+            use_llm=use_llm,
             categories=categories,
             config_path=args.config,
             no_cache=args.no_cache,
@@ -272,13 +287,14 @@ def main() -> None:
 
     if args.output is not None:
         if output_format == "xlsx":
-            # Write XLSX workbook (no timestamp suffix for xlsx — the
-            # base name already identifies the run).
+            _ver_slug = (
+                f"-{args.version.replace(' ', '_')}" if args.version else ""
+            )
             if args.output:
                 base, _ = os.path.splitext(args.output)
-                xlsx_path = f"{base}-{_run_timestamp}.xlsx"
+                xlsx_path = f"{base}{_ver_slug}-{_run_timestamp}.xlsx"
             else:
-                xlsx_path = f"report-{_run_timestamp}.xlsx"
+                xlsx_path = f"report{_ver_slug}-{_run_timestamp}.xlsx"
 
             from agent.export.xlsx_report import build_xlsx
             jira_url = ""
@@ -295,6 +311,7 @@ def main() -> None:
             build_xlsx(
                 xlsx_path,
                 metadata=report.metadata,
+                summary_only=args.summary_only,
                 tallies=report.tallies,
                 plan_collector=report.plan_collector,
                 jira_url=jira_url,
@@ -303,11 +320,14 @@ def main() -> None:
         else:
             # args.output is "" when --output is given without a filename.
             ext = ".html" if output_format == "html" else ".md"
+            _ver_slug = (
+                f"-{args.version.replace(' ', '_')}" if args.version else ""
+            )
             if args.output:
                 base, _ = os.path.splitext(args.output)
-                output_path = f"{base}-{_run_timestamp}{ext}"
+                output_path = f"{base}{_ver_slug}-{_run_timestamp}{ext}"
             else:
-                output_path = f"report-{_run_timestamp}{ext}"
+                output_path = f"report{_ver_slug}-{_run_timestamp}{ext}"
             with open(output_path, "w", encoding="utf-8") as fh:
                 fh.write(rendered)
                 fh.write("\n")

@@ -130,7 +130,7 @@ class _EpicTally:
         "qe_sp_existing", "qe_sp_proposed",
         "docs_sp_existing", "docs_sp_proposed",
         "has_no_qe", "has_no_doc",
-        "components",
+        "components", "labels",
     )
 
     def __init__(
@@ -151,6 +151,7 @@ class _EpicTally:
         self.has_no_qe: bool = False
         self.has_no_doc: bool = False
         self.components: list[str] = []
+        self.labels: list[str] = []
 
     def record(self, category: str) -> None:
         self.by_category[category] = (
@@ -285,6 +286,43 @@ def _classify_child_category(child: Any) -> str:
     return "dev"
 
 
+_AGENT_TAGS_RE = re.compile(
+    r"^\s*(\[QE\]|\[Docs\]|\[Obs\]|\[agent\])\s*",
+    re.IGNORECASE,
+)
+_CAT_TAG: dict[str, str] = {
+    "qe": "[QE]",
+    "docs": "[Docs]",
+    "documentation": "[Docs]",
+}
+
+
+def _apply_story_prefixes(
+    stories: list[StoryPayload],
+    cfg: dict[str, Any],
+) -> None:
+    """Apply category-aware prefixes to story summaries in place.
+
+    Strips any LLM-generated agent tags first to avoid doubling, then
+    prepends ``[agent][Cat]`` (or just ``[agent]`` for obs stories).
+    """
+    base_prefix = cfg.get("creation", {}).get(
+        "story_summary_prefix", "[agent]",
+    )
+    for story in stories:
+        cat_tag = _CAT_TAG.get(story.category or "", "")
+        full_prefix = (
+            f"{base_prefix}{cat_tag}" if base_prefix else cat_tag
+        )
+        clean = story.summary
+        while _AGENT_TAGS_RE.match(clean):
+            clean = _AGENT_TAGS_RE.sub("", clean, count=1)
+        clean = clean.strip()
+        story.summary = (
+            f"{full_prefix} {clean}".strip() if full_prefix else clean
+        )
+
+
 def _dedup_and_create(
     stories: list[StoryPayload],
     epic_key: str,
@@ -325,39 +363,8 @@ def _dedup_and_create(
             else:
                 tally.dev_sp_proposed += sp
 
-        # Apply a category-aware prefix so agent stories are easy to
-        # spot in the epic view. The base prefix comes from config;
-        # a category tag is appended per story type.
-        # The prefix is NOT applied before the dedup check so existing
-        # stories without the prefix are still matched correctly.
-        base_prefix = ctx.cfg.get("creation", {}).get(
-            "story_summary_prefix", "[agent]",
-        )
-        _CAT_TAG: dict[str, str] = {
-            "qe": "[QE]",
-            "docs": "[Docs]",
-            "documentation": "[Docs]",
-        }
-        cat_tag = _CAT_TAG.get(story.category or "", "")
-        full_prefix = (
-            f"{base_prefix}{cat_tag}" if base_prefix else cat_tag
-        )
-        # Strip any agent-owned category tag the LLM may have added to
-        # the summary itself to prevent doubled tags like [agent][QE] [QE].
-        # Only strip exact known tags, not [Observability][...] which
-        # the LLM should keep.
-        _AGENT_TAGS_RE = re.compile(
-            r"^\s*(\[QE\]|\[Docs\]|\[Obs\]|\[agent\])\s*",
-            re.IGNORECASE,
-        )
-        clean_summary = story.summary
-        while _AGENT_TAGS_RE.match(clean_summary):
-            clean_summary = _AGENT_TAGS_RE.sub("", clean_summary, count=1)
-        clean_summary = clean_summary.strip()
-        display_summary = (
-            f"{full_prefix} {clean_summary}".strip()
-            if full_prefix else clean_summary
-        )
+        # Prefix was already applied by _apply_story_prefixes before
+        # this function was called; story.summary is the display summary.
 
         if ctx.apply and ctx.version:
             try:
@@ -373,7 +380,7 @@ def _dedup_and_create(
                 issue, warnings = create_obs_story(
                     ctx.client, ctx.cfg,
                     obs_epic["key"], epic_key,
-                    display_summary, story.description,
+                    story.summary, story.description,
                     story_points=story.story_points,
                     category=story.category,
                     run_id=ctx.run_id,
@@ -393,7 +400,7 @@ def _dedup_and_create(
                 )
                 lines.append(
                     f"- CREATED {issue.key}: "
-                    f"{display_summary}{sp_tag}{warn_tag}"
+                    f"{story.summary}{sp_tag}{warn_tag}"
                 )
             except Exception:
                 ctx.counters.failed += 1
@@ -401,7 +408,7 @@ def _dedup_and_create(
                     "[%s] Failed to create story for %s",
                     ctx.run_id, epic_key, exc_info=True,
                 )
-                lines.append(f"- ERROR: {display_summary}")
+                lines.append(f"- ERROR: {story.summary}")
         else:
             ctx.counters.created += 1
             ctx.counters.record_category(
@@ -412,7 +419,7 @@ def _dedup_and_create(
                 if story.story_points else ""
             )
             lines.append(
-                f"- WOULD CREATE: {display_summary}{sp_tag}"
+                f"- WOULD CREATE: {story.summary}{sp_tag}"
             )
             lines.append("")
             lines.append(
@@ -835,15 +842,15 @@ def _process_epic(
             else:
                 tally.target_version = str(tv_raw)
 
-    # Populate components here, before the grooming check, so that even
-    # epics that exit early (grooming flag, skip, error) carry component
-    # information into the report tables.
+    # Populate components and labels before the grooming check so every
+    # epic carries these even on early exits (grooming flag, skip, error).
     raw_components = getattr(fields, "components", None) or []
     tally.components = [
         c.get("name", "") if isinstance(c, dict) else getattr(c, "name", str(c))
         for c in raw_components
         if (c.get("name", "") if isinstance(c, dict) else getattr(c, "name", ""))
     ]
+    tally.labels = list(getattr(fields, "labels", None) or [])
 
     flagged, grooming_reason = _check_grooming(
         epic, children, cfg, app_cfg, ctx,
@@ -999,6 +1006,13 @@ def _process_epic(
                 "continuing without it",
                 run_id, epic_key, exc_info=True,
             )
+
+    # Apply display prefixes to every proposed story before recording
+    # them in plan_collector.  _dedup_and_create also applies the prefix
+    # but only reaches stories that pass the dedup check; doing it here
+    # ensures duplicate stories also carry the correct prefix in the XLSX
+    # and saved plan.
+    _apply_story_prefixes(stories, ctx.cfg)
 
     # Record proposed stories in plan before dedup so the saved plan
     # contains every LLM suggestion; dedup is re-applied on apply-plan.
@@ -1211,6 +1225,14 @@ def _build_report_summary(
         comp_s = " | ---" if show_component_col else ""
         comp_blank = " |" if show_component_col else ""
 
+        # Notable labels to surface in the Labels column. Others are
+        # suppressed to keep the table readable.
+        _NOTABLE_LABELS = {"cnv-observability"}
+
+        def _label_cell(tally: _EpicTally) -> str:
+            notable = [l for l in tally.labels if l in _NOTABLE_LABELS]
+            return ", ".join(notable)
+
         # ── Table 1a: Fix Version Epics ───────────────────────────────
         # Shows only the Fix Ver column (Target Ver omitted).
         if fix_ver_tallies:
@@ -1218,9 +1240,11 @@ def _build_report_summary(
             lines.append("")
             lines.append(
                 f"| Epic | Summary | Status | Fix Ver{comp_h}"
-                " | Dev SP | QE SP | Docs SP |"
+                " | Labels | Dev SP | QE SP | Docs SP |"
             )
-            lines.append(f"| --- | --- | --- | ---{comp_s} | --- | --- | --- |")
+            lines.append(
+                f"| --- | --- | --- | ---{comp_s} | --- | --- | --- | --- |"
+            )
             for tally in fix_ver_tallies:
                 anchor = _epic_anchor(tally.key)
                 link = f"[{tally.key}](#{anchor})"
@@ -1229,10 +1253,10 @@ def _build_report_summary(
                     f"| {link} | {tally.summary or ''}"
                     f" | {tally.status or ''}"
                     f" | {tally.fix_version or '-'}"
-                    f"{comp_v} | {_sp_cols(tally)} |"
+                    f"{comp_v} | {_label_cell(tally)} | {_sp_cols(tally)} |"
                 )
             lines.append(
-                f"| **Total** | | | {comp_blank} | {_sp_totals(fix_ver_tallies)} |"
+                f"| **Total** | | | {comp_blank} | | {_sp_totals(fix_ver_tallies)} |"
             )
             lines.append("")
 
@@ -1243,9 +1267,11 @@ def _build_report_summary(
             lines.append("")
             lines.append(
                 f"| Epic | Summary | Status | Target Ver{comp_h}"
-                " | Dev SP | QE SP | Docs SP |"
+                " | Labels | Dev SP | QE SP | Docs SP |"
             )
-            lines.append(f"| --- | --- | --- | ---{comp_s} | --- | --- | --- |")
+            lines.append(
+                f"| --- | --- | --- | ---{comp_s} | --- | --- | --- | --- |"
+            )
             for tally in target_ver_tallies:
                 anchor = _epic_anchor(tally.key)
                 link = f"[{tally.key}](#{anchor})"
@@ -1254,10 +1280,10 @@ def _build_report_summary(
                     f"| {link} | {tally.summary or ''}"
                     f" | {tally.status or ''}"
                     f" | {tally.target_version or '-'}"
-                    f"{comp_v} | {_sp_cols(tally)} |"
+                    f"{comp_v} | {_label_cell(tally)} | {_sp_cols(tally)} |"
                 )
             lines.append(
-                f"| **Total** | | | {comp_blank} | {_sp_totals(target_ver_tallies)} |"
+                f"| **Total** | | | {comp_blank} | | {_sp_totals(target_ver_tallies)} |"
             )
             lines.append("")
 
@@ -1268,9 +1294,9 @@ def _build_report_summary(
             lines.append("")
             lines.append(
                 f"| Epic | Summary | Status{comp_h}"
-                " | Dev SP | QE SP | Docs SP |"
+                " | Labels | Dev SP | QE SP | Docs SP |"
             )
-            lines.append(f"| --- | --- | ---{comp_s} | --- | --- | --- |")
+            lines.append(f"| --- | --- | ---{comp_s} | --- | --- | --- | --- |")
             for tally in unversioned_tallies:
                 anchor = _epic_anchor(tally.key)
                 link = f"[{tally.key}](#{anchor})"
@@ -1278,10 +1304,10 @@ def _build_report_summary(
                 lines.append(
                     f"| {link} | {tally.summary or ''}"
                     f" | {tally.status or ''}"
-                    f"{comp_v} | {_sp_cols(tally)} |"
+                    f"{comp_v} | {_label_cell(tally)} | {_sp_cols(tally)} |"
                 )
             lines.append(
-                f"| **Total** | |{comp_blank} | {_sp_totals(unversioned_tallies)} |"
+                f"| **Total** | |{comp_blank} | | {_sp_totals(unversioned_tallies)} |"
             )
             lines.append("")
 
@@ -1751,6 +1777,11 @@ def run(
         f"- **Filters:** {', '.join(filters_active) if filters_active else '(none)'}",
         f"- **Run ID:** {run_id}",
     ]
+    if feedback_repo:
+        header_lines.append(
+            f"- **Agent repo:** [{feedback_repo.rstrip('/')}]"
+            f"({feedback_repo.rstrip('/')})"
+        )
     if feedback_count is not None:
         issues_url = f"{feedback_repo.rstrip('/')}/issues?labels=agent-feedback&state=open"
         header_lines.append(
@@ -1820,6 +1851,7 @@ def run(
         "Categories": ", ".join(enabled_categories),
         "Filters": ", ".join(filters_active) if filters_active else "(none)",
         "Run ID": run_id,
+        **({"Agent repo": feedback_repo} if feedback_repo else {}),
     }
 
     return RunResult(

@@ -3,9 +3,11 @@
 Sheets produced:
   Run Info   — metadata (date, version, model, filters, run ID)
   Summary    — one row per epic (component, key, summary, status,
-               version, dev/qe/docs SP existing + proposed)
-  Stories    — one row per proposed story (epic key, component,
-               category, summary, story points, reasoning)
+               version, dev/qe/docs SP existing + proposed).
+               In summary-only mode the proposed SP columns are omitted.
+  Stories    — one row per proposed story (epic key, epic summary,
+               component, category, summary, story points, reasoning).
+               Omitted in summary-only mode.
 """
 
 from __future__ import annotations
@@ -83,42 +85,69 @@ def _build_summary_sheet(
     ws: Any,
     tallies: list[_EpicTally],
     jira_url: str = "",
+    summary_only: bool = False,
+    version: str = "",
 ) -> None:
-    ws.title = "Summary"
+    sheet_name = "Release Planning"
+    if version and version != "(not set)":
+        sheet_name = f"Release Planning {version}"
+    ws.title = sheet_name
 
     has_components = any(t.components for t in tallies)
+    _NOTABLE_LABELS = {"cnv-observability"}
 
     cols = ["Epic Key", "Summary", "Status"]
     if has_components:
         cols.append("Component")
-    cols += [
-        "Fix Version", "Target Version",
-        "Dev SP (existing)", "Dev SP (proposed)",
-        "QE SP (existing)", "QE SP (proposed)",
-        "Docs SP (existing)", "Docs SP (proposed)",
-        "Total Proposed SP",
-    ]
+    cols += ["Fix Version", "Target Version", "Labels"]
+    if summary_only:
+        cols += [
+            "Dev SP (existing)",
+            "QE SP (existing)",
+            "Docs SP (existing)",
+        ]
+    else:
+        cols += [
+            "Dev SP (existing)", "Dev SP (proposed)",
+            "QE SP (existing)", "QE SP (proposed)",
+            "Docs SP (existing)", "Docs SP (proposed)",
+            "Total Proposed SP",
+        ]
     _header_row(ws, cols)
 
     for tally in tallies:
+        notable = ", ".join(
+            lb for lb in getattr(tally, "labels", [])
+            if lb in _NOTABLE_LABELS
+        )
         row: list[Any] = [tally.key, tally.summary, tally.status]
         if has_components:
             row.append(", ".join(tally.components))
         row += [
             tally.fix_version or "",
             tally.target_version or "",
-            tally.dev_sp_existing,
-            tally.dev_sp_proposed,
-            "no-qe" if tally.has_no_qe else tally.qe_sp_existing,
-            "no-qe" if tally.has_no_qe else tally.qe_sp_proposed,
-            "no-doc" if tally.has_no_doc else tally.docs_sp_existing,
-            "no-doc" if tally.has_no_doc else tally.docs_sp_proposed,
-            tally.dev_sp_proposed + (
-                0 if tally.has_no_qe else tally.qe_sp_proposed
-            ) + (
-                0 if tally.has_no_doc else tally.docs_sp_proposed
-            ),
+            notable,
         ]
+        if summary_only:
+            row += [
+                tally.dev_sp_existing,
+                "no-qe" if tally.has_no_qe else tally.qe_sp_existing,
+                "no-doc" if tally.has_no_doc else tally.docs_sp_existing,
+            ]
+        else:
+            row += [
+                tally.dev_sp_existing,
+                tally.dev_sp_proposed,
+                "no-qe" if tally.has_no_qe else tally.qe_sp_existing,
+                "no-qe" if tally.has_no_qe else tally.qe_sp_proposed,
+                "no-doc" if tally.has_no_doc else tally.docs_sp_existing,
+                "no-doc" if tally.has_no_doc else tally.docs_sp_proposed,
+                tally.dev_sp_proposed + (
+                    0 if tally.has_no_qe else tally.qe_sp_proposed
+                ) + (
+                    0 if tally.has_no_doc else tally.docs_sp_proposed
+                ),
+            ]
         ws.append(row)
 
         # Hyperlink the Epic Key cell to Jira if URL is configured.
@@ -142,21 +171,24 @@ def _build_stories_sheet(
 ) -> None:
     ws.title = "Stories"
 
-    # Build a quick lookup: epic_key → component string
+    # Build quick lookups: epic_key → summary / component string
+    summary_map: dict[str, str] = {t.key: t.summary for t in tallies}
     comp_map: dict[str, str] = {
         t.key: ", ".join(t.components) for t in tallies
     }
 
     _header_row(ws, [
-        "Epic Key", "Component", "Category",
+        "Epic Key", "Epic Summary", "Component", "Category",
         "Story Summary", "Story Points", "Reasoning",
     ])
 
     for epic_key, stories in sorted(plan_collector.items()):
+        epic_summary = summary_map.get(epic_key, "")
         component = comp_map.get(epic_key, "")
         for story in stories:
             ws.append([
                 epic_key,
+                epic_summary,
                 component,
                 story.category,
                 story.summary,
@@ -175,7 +207,7 @@ def _build_stories_sheet(
     _shade_alt_rows(ws)
     _auto_width(ws)
     # Reasoning column is wide — let it wrap.
-    ws.column_dimensions["F"].width = 60
+    ws.column_dimensions["G"].width = 60
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
@@ -187,6 +219,7 @@ def build_xlsx(
     tallies: list[_EpicTally],
     plan_collector: dict[str, list[StoryPayload]],
     jira_url: str = "",
+    summary_only: bool = False,
 ) -> None:
     """Write a multi-sheet XLSX workbook to *path*.
 
@@ -196,15 +229,22 @@ def build_xlsx(
         tallies:         Per-epic tally objects from ``_RunCounters``.
         plan_collector:  Proposed stories keyed by epic key.
         jira_url:        Base Jira URL for hyperlinks (optional).
+        summary_only:    When True, omit proposed-SP columns from the Summary
+                         sheet and skip the Stories sheet entirely.  Use with
+                         ``--summary-only`` to get a lightweight inventory
+                         report without running the LLM.
     """
     wb = Workbook()
     wb.remove(wb.active)  # remove default empty sheet
 
+    version = metadata.get("Version", "")
     _build_run_info_sheet(wb.create_sheet("Run Info"), metadata)
     _build_summary_sheet(
-        wb.create_sheet("Summary"), tallies, jira_url=jira_url,
+        wb.create_sheet("Release Planning"), tallies,
+        jira_url=jira_url, summary_only=summary_only,
+        version=version,
     )
-    if plan_collector:
+    if plan_collector and not summary_only:
         _build_stories_sheet(
             wb.create_sheet("Stories"),
             plan_collector, tallies, jira_url=jira_url,
