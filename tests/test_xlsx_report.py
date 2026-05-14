@@ -6,7 +6,7 @@ import os
 import openpyxl
 import pytest
 
-from agent.export.xlsx_report import build_xlsx
+from agent.export.xlsx_report import build_xlsx, read_xlsx_plan
 from agent.runner import _EpicTally
 from schemas.stories import StoryPayload
 
@@ -372,3 +372,162 @@ class TestBuildXlsx:
         ]
         assert "cnv-grooming-agent" not in values
         assert "some-other" not in values
+
+    def test_review_sheets_have_description_column(self):
+        wb = self._build([_make_tally("CNV-910")])
+        for sheet_name in ("QE & Docs Stories", "Observability Stories"):
+            headers = [str(c.value or "") for c in wb[sheet_name][1]]
+            assert "Description" in headers, (
+                f"'Description' missing from {sheet_name}"
+            )
+
+    def test_description_value_in_story_row(self):
+        story = StoryPayload(
+            category="metrics",
+            summary="Add metric X",
+            description="Full story body text here.",
+            story_points=3,
+            reasoning="r",
+        )
+        wb = self._build(
+            [_make_tally("CNV-920")],
+            plan_collector={"CNV-920": [story]},
+        )
+        ws = wb["Observability Stories"]
+        all_values = [
+            str(c.value or "")
+            for row in ws.iter_rows(min_row=2) for c in row
+        ]
+        assert "Full story body text here." in all_values
+
+
+class TestReadXlsxPlan:
+    """Tests for read_xlsx_plan — the XLSX → StoryPayload reader."""
+
+    def _write_xlsx(
+        self,
+        stories: dict[str, list[StoryPayload]],
+        version: str = "5.0.0",
+        approved: dict[str, str] | None = None,
+    ) -> str:
+        """Build an XLSX and return its path. approved maps story summary → value."""
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            path = f.name
+        build_xlsx(
+            path,
+            metadata={"Date": "2026-05-14", "Version": version},
+            tallies=[_make_tally(k) for k in stories],
+            plan_collector=stories,
+        )
+        # Fill in Approved? values via openpyxl.
+        wb = openpyxl.load_workbook(path)
+        for sheet_name in ("QE & Docs Stories", "Observability Stories"):
+            if sheet_name not in wb.sheetnames:
+                continue
+            ws = wb[sheet_name]
+            headers = [str(c.value or "") for c in ws[1]]
+            try:
+                sum_idx = headers.index("Story Summary") + 1
+                app_idx = headers.index("Approved?") + 1
+            except ValueError:
+                continue
+            for row in ws.iter_rows(min_row=2):
+                summary = str(row[sum_idx - 1].value or "")
+                if approved and summary in approved:
+                    row[app_idx - 1].value = approved[summary]
+        wb.save(path)
+        return path
+
+    def test_returns_version(self):
+        path = self._write_xlsx({})
+        try:
+            version, _ = read_xlsx_plan(path)
+            assert version == "5.0.0"
+        finally:
+            os.unlink(path)
+
+    def test_empty_approved_returns_nothing(self):
+        story = StoryPayload(
+            category="metrics", summary="Add metric X",
+            description="desc", story_points=3, reasoning="r",
+        )
+        path = self._write_xlsx({"CNV-100": [story]})
+        try:
+            _, plan = read_xlsx_plan(path)
+            assert plan == {}
+        finally:
+            os.unlink(path)
+
+    def test_approved_story_included(self):
+        story = StoryPayload(
+            category="metrics", summary="Add metric X",
+            description="Full description.", story_points=3, reasoning="r",
+        )
+        path = self._write_xlsx(
+            {"CNV-100": [story]},
+            approved={"Add metric X": "Yes"},
+        )
+        try:
+            _, plan = read_xlsx_plan(path)
+            assert "CNV-100" in plan
+            assert len(plan["CNV-100"]) == 1
+            assert plan["CNV-100"][0].category == "metrics"
+            assert plan["CNV-100"][0].description == "Full description."
+        finally:
+            os.unlink(path)
+
+    def test_rejected_story_excluded(self):
+        story = StoryPayload(
+            category="metrics", summary="Add metric X",
+            description="desc", story_points=3, reasoning="r",
+        )
+        path = self._write_xlsx(
+            {"CNV-100": [story]},
+            approved={"Add metric X": "No"},
+        )
+        try:
+            _, plan = read_xlsx_plan(path)
+            assert plan == {}
+        finally:
+            os.unlink(path)
+
+    def test_partial_approval(self):
+        obs = StoryPayload(
+            category="metrics", summary="Add metric X",
+            description="desc", story_points=3, reasoning="r",
+        )
+        qe = StoryPayload(
+            category="qe", summary="QE: verify snapshot",
+            description="qe desc", story_points=2, reasoning="r",
+        )
+        path = self._write_xlsx(
+            {"CNV-200": [obs, qe]},
+            approved={"Add metric X": "Yes"},
+        )
+        try:
+            _, plan = read_xlsx_plan(path)
+            summaries = [s.summary for s in plan.get("CNV-200", [])]
+            assert any("metric X" in s for s in summaries)
+            assert not any("snapshot" in s for s in summaries)
+        finally:
+            os.unlink(path)
+
+    def test_linked_qe_story_round_trips(self):
+        """A QE story with linked_to set goes into the Observability sheet
+        and is recovered by read_xlsx_plan with linked_to preserved."""
+        qe = StoryPayload(
+            category="qe", summary="QE: verify metric X",
+            description="qe desc", story_points=2, reasoning="r",
+            linked_to="Add metric X",
+        )
+        path = self._write_xlsx(
+            {"CNV-300": [qe]},
+            approved={"QE: verify metric X": "Yes"},
+        )
+        try:
+            _, plan = read_xlsx_plan(path)
+            stories = plan.get("CNV-300", [])
+            assert stories, "Expected approved linked QE story"
+            assert stories[0].linked_to == "Add metric X"
+        finally:
+            os.unlink(path)

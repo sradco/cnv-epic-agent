@@ -160,6 +160,17 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--apply-xlsx",
+        default=None,
+        metavar="FILE",
+        help=(
+            "Load an XLSX report (produced by --output report.xlsx) "
+            "and create stories for every row where 'Approved?' is "
+            "non-empty. The workbook is self-contained — no companion "
+            "JSON file is required."
+        ),
+    )
+    parser.add_argument(
         "--config", "-c",
         default=None,
         help=(
@@ -211,12 +222,31 @@ def main() -> None:
             "--apply-plan already implies apply mode; "
             "do not pass --apply together with --apply-plan."
         )
+    if args.apply_xlsx and args.apply_plan:
+        parser.error(
+            "--apply-xlsx and --apply-plan are mutually exclusive."
+        )
+    if args.apply_xlsx and args.apply:
+        parser.error(
+            "--apply-xlsx already implies apply mode; "
+            "do not pass --apply together with --apply-xlsx."
+        )
+    if args.apply_xlsx and args.save_plan:
+        parser.error(
+            "--apply-xlsx and --save-plan are mutually exclusive."
+        )
 
-    from agent.runner import apply_plan, run
+    from agent.runner import apply_plan, apply_xlsx, run
 
     _run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
-    if args.apply_plan:
+    if args.apply_xlsx:
+        report = apply_xlsx(
+            args.apply_xlsx,
+            config_path=args.config,
+            epic_keys=args.epic,
+        )
+    elif args.apply_plan:
         report = apply_plan(
             args.apply_plan,
             config_path=args.config,

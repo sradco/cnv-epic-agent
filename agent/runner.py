@@ -1645,6 +1645,156 @@ def apply_plan(
     )
 
 
+def apply_xlsx(
+    xlsx_path: str,
+    *,
+    config_path: str | None = None,
+    epic_keys: list[str] | None = None,
+) -> RunResult:
+    """Apply approved stories from an XLSX report workbook.
+
+    Reads the "QE & Docs Stories" and "Observability Stories" sheets,
+    selects rows where "Approved?" is non-empty (and not a rejection
+    value), then creates the corresponding Jira stories — identical to
+    ``apply_plan`` but using the XLSX as the single source of truth.
+
+    Parameters:
+    - xlsx_path:   Path to the XLSX file produced by ``--output report.xlsx``.
+    - config_path: Optional path to config.yaml.
+    - epic_keys:   If set, only process epics whose key is in this list.
+    """
+    from agent.export.xlsx_report import read_xlsx_plan
+
+    run_id = uuid.uuid4().hex[:8]
+    app_cfg = _load_config(config_path)
+    cfg = app_cfg.raw
+
+    try:
+        version, plan_collector = read_xlsx_plan(xlsx_path)
+    except (ValueError, Exception) as exc:
+        raise ConfigError(
+            f"Cannot read XLSX plan from '{xlsx_path}': {exc}"
+        ) from exc
+
+    if not version:
+        raise ConfigError(
+            f"No Version found in Run Info sheet of '{xlsx_path}'. "
+            "Re-generate the report with --version set."
+        )
+
+    client = get_jira_client(cfg)
+    max_stories = app_cfg.agent.max_stories_per_run
+
+    ctx = _RunContext(
+        client=client,
+        cfg=cfg,
+        apply=True,
+        version=version,
+        max_stories=max_stories,
+        model="(xlsx)",
+        temperature=0.0,
+        story_points_guidance="",
+        run_id=run_id,
+    )
+
+    run_timestamp = datetime.now(timezone.utc).strftime(
+        "%Y-%m-%d %H:%M UTC"
+    )
+    filter_set = {k.upper() for k in epic_keys} if epic_keys else None
+
+    lines: list[str] = [
+        "# Epic Agent Run (APPLY FROM XLSX)",
+        "",
+        f"- **Date:** {run_timestamp}",
+        f"- **XLSX file:** {xlsx_path}",
+        f"- **Version:** {version}",
+        f"- **Run ID:** {run_id}",
+    ]
+    if filter_set:
+        lines.append(
+            f"- **Epic filter:** {', '.join(sorted(filter_set))}"
+        )
+    lines.append("")
+
+    try:
+        obs_epic = find_or_create_obs_epic(
+            client, cfg, version, dry_run=False,
+        )
+    except Exception:
+        logger.error(
+            "[%s] Failed to resolve observability epic",
+            run_id, exc_info=True,
+        )
+        return RunResult(
+            report="\n".join(
+                lines + ["**ERROR**: Could not resolve observability epic."]
+            ),
+            tallies=[],
+            plan_collector={},
+            metadata={"Date": run_timestamp, "Version": version,
+                      "Run ID": run_id},
+        )
+
+    entries = list(plan_collector.items())
+    if filter_set:
+        entries = [
+            (k, v) for k, v in entries
+            if k.upper() in filter_set
+        ]
+        if not entries:
+            return RunResult(
+                report="\n".join(
+                    lines + [
+                        f"**No matching epics in XLSX for: "
+                        f"{', '.join(sorted(filter_set))}**"
+                    ]
+                ),
+                tallies=[],
+                plan_collector={},
+                metadata={"Date": run_timestamp, "Version": version,
+                          "Run ID": run_id},
+            )
+
+    for epic_key, stories in sorted(entries):
+        if not stories:
+            continue
+        lines.append(f"## {epic_key}")
+        lines.append("")
+
+        try:
+            existing = find_existing_obs_stories(
+                client, cfg, obs_epic["key"], epic_key,
+            )
+        except Exception:
+            logger.warning(
+                "[%s] Could not fetch existing stories for %s",
+                run_id, epic_key, exc_info=True,
+            )
+            existing = []
+
+        story_lines = _dedup_and_create(
+            stories, epic_key, obs_epic, existing, ctx,
+        )
+        lines.extend(story_lines)
+        lines.append("")
+
+    summary_lines = _build_report_summary(
+        ctx.counters, len(entries), apply=True,
+    )
+    report = "\n".join(lines[:3] + summary_lines + lines[3:])
+    return RunResult(
+        report=report,
+        tallies=list(ctx.counters.epic_tallies),
+        plan_collector={},
+        metadata={
+            "Date": run_timestamp,
+            "XLSX file": xlsx_path,
+            "Version": version,
+            "Run ID": run_id,
+        },
+    )
+
+
 def run(
     epic_keys: list[str] | None = None,
     jql: str | None = None,
