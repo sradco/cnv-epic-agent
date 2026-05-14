@@ -602,6 +602,46 @@ class TestObservabilityRuleGuardrails:
         assert "Windows EFI" in prompt or "Tekton" in prompt
 
 
+class TestDocsRuleGuardrails:
+    """Spot-check that key docs-rule guardrail phrases survive edits."""
+
+    def _docs_prompt(self):
+        return get_system_prompt(["metrics", "alerts", "dashboards", "docs"])
+
+    def test_new_dashboard_no_docs_story_rule_present(self):
+        """Brand-new dashboards must not trigger a docs story."""
+        prompt = self._docs_prompt()
+        assert (
+            "brand-new dashboard" in prompt.lower()
+            or "brand-new" in prompt.lower()
+        ), "Rule blocking docs stories for newly proposed dashboards is missing"
+
+    def test_scope_rule_covers_all_obs_categories(self):
+        """SCOPE RULE must mention all observability categories explicitly."""
+        prompt = self._docs_prompt()
+        lower = prompt.lower()
+        assert "proposed in this same response" in lower, (
+            "SCOPE RULE phrase 'proposed in this same response' is missing"
+        )
+        for cat in ("metrics", "alerts", "dashboards", "telemetry"):
+            assert cat in lower, f"SCOPE RULE does not mention category '{cat}'"
+
+    def test_bad_example_dashboard_docs_present(self):
+        """The Autopilot dashboard BAD example must be in the prompt."""
+        prompt = self._docs_prompt()
+        assert "Autopilot Health dashboard" in prompt, (
+            "BAD docs example for newly proposed dashboard is missing"
+        )
+
+    def test_existing_dashboard_change_is_valid(self):
+        """The GOOD example for updated existing dashboards must be present."""
+        prompt = self._docs_prompt()
+        assert "already-shipped" in prompt.lower() or "already shipped" in prompt.lower() or \
+               "already implemented" in prompt.lower() or "already-implemented" in prompt.lower(), (
+            "GOOD docs example for existing artifact changes is missing"
+        )
+
+
 if __name__ == "__main__":
     import sys
     import pytest

@@ -440,14 +440,22 @@ _DOCS_RULES = """\
 Docs story rules:
 - Your role is an **observability docs** reviewer only. \
 You may ONLY propose docs stories for observability \
-artifacts: metric name changes, dashboard additions \
-visible to end users, or alert runbook updates for \
-already-existing alerts whose expression changed.
+artifacts that are **already implemented and shipped**: \
+metric name changes (deprecation notices), or \
+already-existing dashboard/alert documentation updates \
+when the behavior or expression changed in this epic.
 - Do NOT propose docs stories for feature APIs, CRD \
 changes, UI changes, CLI flags, operator configuration, \
 or any other non-observability content — those are the \
 development team's responsibility and belong in the epic \
 itself, not as agent-generated stories.
+- SCOPE RULE (critical): If a metric, alert, dashboard, \
+or any other observability artifact is itself being \
+**proposed in this same response** (i.e., it does not yet \
+exist), do NOT propose a separate docs story for it. \
+Documenting brand-new work is the developer's \
+responsibility. This applies to ALL observability \
+categories: metrics, alerts, dashboards, telemetry.
 - New metrics and recording rules do NOT need \
 documentation. The only exception is a metric or \
 recording rule **name change** — in that case propose a \
@@ -464,6 +472,11 @@ a review of an **existing, already-implemented** alert's \
 runbook when the alert expression or semantics changed in \
 this epic — i.e., the alert is already listed under \
 `alerts_with_runbooks` and its expression was modified.
+- The only dashboard-related docs story that is acceptable \
+is updating documentation for an **existing, already-shipped** \
+dashboard when its panels or queries changed substantially \
+in this epic. A brand-new dashboard does NOT warrant a \
+separate docs story.
 - If you are unsure whether a docs story is needed, \
 default to NOT proposing one.
 - Description format: a short plain-text paragraph \
@@ -471,6 +484,20 @@ describing what needs to be documented, followed by an \
 acceptance criteria checklist. Nothing else. Do NOT add \
 sections like "Why this is needed", "Proposed changes", \
 "Who benefits", "How it is used", or any other headings.
+
+BAD example (do NOT do this):
+  Observability stories proposed in same response:
+    - [agent] Add Autopilot Health dashboard
+  Then also proposing:
+    - [agent][Docs] Document Autopilot Health dashboard   ← WRONG
+  Reason: the dashboard is brand-new (proposed above);
+  documenting it is the developer's job.
+
+GOOD example:
+  Existing shipped dashboard "VM Health Overview" had its
+  SLO panels replaced in this epic.
+    - [agent][Docs] Update VM Health Overview dashboard \
+docs for new SLO panels   ← OK, existing artifact changed.
 """
 
 _QE_RULES = """\
