@@ -13,13 +13,21 @@ VALID_CATEGORIES = frozenset(
 
 @dataclass
 class StoryPayload:
-    """A single Jira story ready for creation."""
+    """A single Jira story ready for creation.
+
+    linked_to: For QE/Docs stories that cover a *proposed* observability
+    item (not an existing Jira child issue), set this to the summary of
+    the observability story being covered.  The XLSX router uses this to
+    place such stories in the Observability Stories sheet alongside the
+    work they validate, rather than in the QE & Docs sheet.
+    """
 
     category: str
     summary: str
     description: str
     story_points: int | None = None
     reasoning: str = ""
+    linked_to: str = ""
 
 
 SP_ESTIMATION_JSON_SCHEMA: dict[str, Any] = {
@@ -115,6 +123,18 @@ STORY_JSON_SCHEMA: dict[str, Any] = {
                             "does the epic introduce that is not already "
                             "covered? If you cannot articulate a clear "
                             "reason, do not propose the story."
+                        ),
+                    },
+                    "linked_to": {
+                        "type": "string",
+                        "description": (
+                            "For QE or Docs stories that validate a "
+                            "proposed observability item (metric, alert, "
+                            "dashboard, or telemetry story proposed in "
+                            "this same response): set this to the exact "
+                            "summary of that observability story. "
+                            "Leave empty for QE/Docs stories that cover "
+                            "existing Jira child issues."
                         ),
                     },
                 },

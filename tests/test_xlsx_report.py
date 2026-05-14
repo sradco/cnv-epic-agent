@@ -191,19 +191,20 @@ class TestBuildXlsx:
         assert "QE: test GPU passthrough" in values
         assert "qe" in values
 
-    def test_stories_routed_to_correct_sheet(self):
-        """Observability stories land in Observability sheet, QE in QE sheet."""
+    def test_obs_stories_and_linked_qe_routed_to_obs_sheet(self):
+        """Obs stories and QE stories linked to them land in Observability sheet."""
         obs_story = StoryPayload(
             category="metrics", summary="Add metric X",
             description="desc", story_points=2, reasoning="r",
         )
-        qe_story = StoryPayload(
-            category="qe", summary="QE: cover metric X",
+        qe_linked = StoryPayload(
+            category="qe", summary="QE: verify metric X",
             description="desc", story_points=2, reasoning="r",
+            linked_to="Add metric X",
         )
         wb = self._build(
             [_make_tally("CNV-402")],
-            plan_collector={"CNV-402": [obs_story, qe_story]},
+            plan_collector={"CNV-402": [obs_story, qe_linked]},
         )
         obs_values = [
             str(c.value or "")
@@ -216,9 +217,51 @@ class TestBuildXlsx:
             for c in row
         ]
         assert "Add metric X" in obs_values
-        assert "QE: cover metric X" not in obs_values
-        assert "QE: cover metric X" in qe_values
-        assert "Add metric X" not in qe_values
+        assert "QE: verify metric X" in obs_values, (
+            "Linked QE story must appear in Observability sheet"
+        )
+        assert "QE: verify metric X" not in qe_values, (
+            "Linked QE story must NOT appear in QE & Docs sheet"
+        )
+
+    def test_unlinked_qe_stays_in_qe_docs_sheet(self):
+        """QE stories without linked_to (covering existing child) go to QE & Docs."""
+        qe_unlinked = StoryPayload(
+            category="qe", summary="QE: verify snapshot restore",
+            description="desc", story_points=3, reasoning="r",
+        )
+        wb = self._build(
+            [_make_tally("CNV-403")],
+            plan_collector={"CNV-403": [qe_unlinked]},
+        )
+        qe_values = [
+            str(c.value or "")
+            for row in wb["QE & Docs Stories"].iter_rows(min_row=2)
+            for c in row
+        ]
+        obs_values = [
+            str(c.value or "")
+            for row in wb["Observability Stories"].iter_rows(min_row=2)
+            for c in row
+        ]
+        assert "QE: verify snapshot restore" in qe_values
+        assert "QE: verify snapshot restore" not in obs_values
+
+    def test_obs_sheet_has_covers_proposed_story_column(self):
+        """Observability sheet includes a 'Covers proposed story' column."""
+        wb = self._build([_make_tally("CNV-410")])
+        headers = [
+            str(cell.value or "") for cell in wb["Observability Stories"][1]
+        ]
+        assert "Covers proposed story" in headers
+
+    def test_qe_docs_sheet_has_no_covers_proposed_story_column(self):
+        """QE & Docs sheet does NOT include 'Covers proposed story' column."""
+        wb = self._build([_make_tally("CNV-410")])
+        headers = [
+            str(cell.value or "") for cell in wb["QE & Docs Stories"][1]
+        ]
+        assert "Covers proposed story" not in headers
 
     def test_review_sheets_have_approved_column(self):
         wb = self._build([_make_tally("CNV-410")])
@@ -239,6 +282,24 @@ class TestBuildXlsx:
             assert "Epic Summary" in headers, (
                 f"'Epic Summary' missing from {sheet_name}"
             )
+
+    def test_linked_to_value_shown_in_obs_sheet(self):
+        """linked_to value appears in the 'Covers proposed story' column."""
+        qe_linked = StoryPayload(
+            category="qe", summary="QE: verify dashboard",
+            description="desc", story_points=2, reasoning="r",
+            linked_to="Add Autopilot Health dashboard",
+        )
+        wb = self._build(
+            [_make_tally("CNV-420")],
+            plan_collector={"CNV-420": [qe_linked]},
+        )
+        ws = wb["Observability Stories"]
+        all_values = [
+            str(c.value or "")
+            for row in ws.iter_rows(min_row=2) for c in row
+        ]
+        assert "Add Autopilot Health dashboard" in all_values
 
     def test_summary_only_omits_proposed_columns(self):
         t = _make_tally("CNV-500", dev_ex=5, dev_pr=3, qe_pr=2)

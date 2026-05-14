@@ -1603,6 +1603,7 @@ def apply_plan(
                 description=s["description"],
                 story_points=s.get("story_points"),
                 reasoning=s.get("reasoning", ""),
+                linked_to=s.get("linked_to", ""),
             )
             for s in raw_stories
         ]
@@ -1863,6 +1864,7 @@ def run(
                             "description": s.description,
                             "story_points": s.story_points,
                             "reasoning": s.reasoning,
+                            "linked_to": s.linked_to,
                         }
                         for s in stories
                     ],

@@ -138,6 +138,7 @@ def compose_stories(
                 description=item.get("description", ""),
                 story_points=sp_int,
                 reasoning=reasoning,
+                linked_to=item.get("linked_to", ""),
             )
         )
 

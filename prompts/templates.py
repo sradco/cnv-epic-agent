@@ -440,101 +440,101 @@ _DOCS_RULES = """\
 Docs story rules:
 - Your role is an **observability docs** reviewer only. \
 You may ONLY propose docs stories for observability \
-artifacts that are **already implemented and shipped**: \
-metric name changes (deprecation notices), or \
-already-existing dashboard/alert documentation updates \
-when the behavior or expression changed in this epic.
+artifacts: changes to existing shipped artifacts \
+(runbook updates, dashboard documentation updates, \
+metric rename deprecation notices) OR documentation for \
+observability items you are proposing in this same \
+response.
 - Do NOT propose docs stories for feature APIs, CRD \
 changes, UI changes, CLI flags, operator configuration, \
 or any other non-observability content — those are the \
-development team's responsibility and belong in the epic \
-itself, not as agent-generated stories.
-- SCOPE RULE (critical): If a metric, alert, dashboard, \
-or any other observability artifact is itself being \
-**proposed in this same response** (i.e., it does not yet \
-exist), do NOT propose a separate docs story for it. \
-Documenting brand-new work is the developer's \
-responsibility. This applies to ALL observability \
-categories: metrics, alerts, dashboards, telemetry.
+development team's responsibility.
+- TWO valid sources for a docs story:
+  1. An **existing, already-shipped** artifact that \
+changed in this epic (e.g. an existing alert runbook \
+whose expression was modified, or an existing dashboard \
+whose panels changed). Leave ``linked_to`` empty — the \
+artifact already exists in Jira.
+  2. An observability story **you are proposing in this \
+same response** that needs accompanying documentation. \
+Set ``linked_to`` to the exact summary of that \
+observability story so the system groups them together \
+for review.
 - New metrics and recording rules do NOT need \
 documentation. The only exception is a metric or \
-recording rule **name change** — in that case propose a \
-docs story for a deprecation notice listing the old and \
-new name.
+recording rule **name change** — propose a \
+deprecation-notice docs story and leave ``linked_to`` \
+empty (the existing metric already exists).
 - For alerts: creating a runbook is the developer's \
-responsibility and is part of implementing the alert \
-itself. Do NOT propose a separate docs story for writing \
-or reviewing runbooks for any alert that is newly proposed \
-(either in this run or in a child story that is not yet \
-done). Runbook creation is NOT a docs deliverable.
-- The only alert-related docs story that is acceptable is \
-a review of an **existing, already-implemented** alert's \
-runbook when the alert expression or semantics changed in \
-this epic — i.e., the alert is already listed under \
-`alerts_with_runbooks` and its expression was modified.
-- The only dashboard-related docs story that is acceptable \
-is updating documentation for an **existing, already-shipped** \
-dashboard when its panels or queries changed substantially \
-in this epic. A brand-new dashboard does NOT warrant a \
-separate docs story.
+responsibility and is part of implementing the alert. \
+Do NOT propose a docs story just for writing a runbook \
+for an alert that is also newly proposed here. If the \
+dashboard or alert genuinely requires end-user \
+documentation beyond the runbook, set ``linked_to`` to \
+that alert's story summary.
 - If you are unsure whether a docs story is needed, \
 default to NOT proposing one.
 - Description format: a short plain-text paragraph \
 describing what needs to be documented, followed by an \
-acceptance criteria checklist. Nothing else. Do NOT add \
-sections like "Why this is needed", "Proposed changes", \
-"Who benefits", "How it is used", or any other headings.
+acceptance criteria checklist. Nothing else.
 
-BAD example (do NOT do this):
-  Observability stories proposed in same response:
-    - [agent] Add Autopilot Health dashboard
-  Then also proposing:
-    - [agent][Docs] Document Autopilot Health dashboard   ← WRONG
-  Reason: the dashboard is brand-new (proposed above);
-  documenting it is the developer's job.
-
-GOOD example:
-  Existing shipped dashboard "VM Health Overview" had its
-  SLO panels replaced in this epic.
-    - [agent][Docs] Update VM Health Overview dashboard \
-docs for new SLO panels   ← OK, existing artifact changed.
+linked_to examples:
+  BAD (existing artifact, incorrectly sets linked_to):
+    docs story: "Update VM Health Overview runbook"
+    linked_to: "Add Autopilot Health dashboard"  ← WRONG
+  GOOD (new obs proposal — set linked_to):
+    obs story:  "Add Autopilot Health dashboard"
+    docs story: "Document Autopilot Health dashboard"
+    linked_to:  "Add Autopilot Health dashboard"  ← correct
+  GOOD (existing artifact changed — no linked_to):
+    docs story: "Update VM Health Overview dashboard \
+docs for new SLO panels"
+    linked_to:  ""  ← correct, artifact already exists
 """
 
 _QE_RULES = """\
 QE story rules:
 - Take a QE engineer role. Split by test type / scope. \
-Group same-type tests into one story. Reference child \
-story keys (or your own proposed story summaries when the \
-child stories do not yet exist in Jira).
+Group same-type tests into one story.
 - Description format: a checklist of specific test cases \
 to verify. Nothing else. Do NOT add sections like \
 "Why this is needed", "Proposed changes", "Who benefits", \
 "How it is used", or any other headings.
-- Distinguish new vs. migrated items: moved/refactored items \
-(same names) already have tests — only propose end-to-end \
-verification. Renamed metrics need a story to update \
-existing tests. Only propose unit tests for genuinely new \
-metrics/alerts.
+- Distinguish new vs. migrated items: moved/refactored \
+items (same names) already have tests — only propose \
+end-to-end verification. Renamed metrics need a story to \
+update existing tests. Only propose unit tests for \
+genuinely new metrics/alerts.
 - Do NOT propose upgrade or rollback stories for metrics, \
 alerts, or recording rules. Prometheus metrics and alert \
-rules are stateless — they do not require upgrade or \
-rollback test coverage. Upgrade/rollback testing is only \
-relevant for features with persistent state or APIs.
+rules are stateless.
 - Do NOT propose QE stories for child issues that are \
 already Closed, Done, Resolved, or Won't Fix.
-- SCOPE RULE (critical): QE stories must ONLY cover work \
-that belongs to THIS feature epic — its existing child \
-issues and any feature dev work described in the epic. \
-Do NOT propose QE stories for observability items \
-(metrics, alerts, dashboards) that you propose in the \
-same response. Those observability stories will land in a \
-separate observability epic and be verified there. \
-Proposing QE for your own observability proposals creates \
-orphaned test stories in the wrong epic with no parent \
-implementation story.
-- Test categories: metric unit tests (new only), alert rule \
-tests (new only), dashboard verification, end-to-end pipeline.
+- TWO valid sources for a QE story:
+  1. An **existing Jira child issue** (not yet Done) that \
+the epic introduces. Leave ``linked_to`` empty.
+  2. An observability story **you are proposing in this \
+same response** that needs QE coverage. Set ``linked_to`` \
+to the exact summary of that observability story so the \
+system groups them together for review in the \
+Observability Stories tab.
+- Test categories: metric unit tests (new only), alert \
+rule tests (new only), dashboard verification, \
+end-to-end pipeline.
 - Do NOT create a single monolithic QE story.
+
+linked_to examples:
+  BAD (new obs proposal, missing linked_to):
+    obs story:  "Add role aggregation metric"
+    qe story:   "QE: verify role aggregation metric"
+    linked_to:  ""  ← WRONG, system cannot group them
+  GOOD (new obs proposal — set linked_to):
+    obs story:  "Add role aggregation metric"
+    qe story:   "QE: verify role aggregation metric"
+    linked_to:  "Add role aggregation metric"  ← correct
+  GOOD (existing child issue — no linked_to):
+    qe story:   "QE: verify VM snapshot restore (CNV-999)"
+    linked_to:  ""  ← correct, covers existing Jira story
 """
 
 

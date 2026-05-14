@@ -173,22 +173,41 @@ _QE_DOCS_CATEGORIES = {"qe", "docs"}
 _OBS_CATEGORIES = {"metrics", "alerts", "dashboards", "telemetry"}
 
 
+def _is_obs_sheet_story(story: StoryPayload) -> bool:
+    """Return True if this story belongs on the Observability Stories sheet.
+
+    Core observability categories always go there.  QE/Docs stories also
+    go there when they cover a *proposed* observability item — indicated
+    by a non-empty ``linked_to`` field set by the LLM.  QE/Docs stories
+    without ``linked_to`` cover existing Jira child issues and go to the
+    QE & Docs sheet instead.
+    """
+    if story.category in _OBS_CATEGORIES:
+        return True
+    if story.category in _QE_DOCS_CATEGORIES and story.linked_to:
+        return True
+    return False
+
+
 def _build_review_sheet(
     ws: Any,
     title: str,
     plan_collector: dict[str, list[StoryPayload]],
     tallies: list[_EpicTally],
-    categories: set[str],
+    obs_sheet: bool = False,
     jira_url: str = "",
 ) -> None:
-    """Populate a review sheet for one group of story categories.
+    """Populate a review sheet for one story group.
 
     Args:
-        title:       Sheet title (e.g. "QE & Docs Stories").
-        categories:  Set of category strings that belong on this sheet.
+        title:        Sheet title.
+        obs_sheet:    When True, include observability stories plus any
+                      QE/Docs stories linked to proposed obs items.
+                      When False, include only QE/Docs stories that cover
+                      existing Jira child issues (no ``linked_to``).
         plan_collector: Full plan keyed by epic_key.
-        tallies:     Used to look up epic summaries and components.
-        jira_url:    Base Jira URL for hyperlinks (optional).
+        tallies:      Used to look up epic summaries and components.
+        jira_url:     Base Jira URL for hyperlinks (optional).
     """
     ws.title = title
 
@@ -197,18 +216,29 @@ def _build_review_sheet(
         t.key: ", ".join(t.components) for t in tallies
     }
 
-    _header_row(ws, [
+    cols = [
         "Epic Key", "Epic Summary", "Component", "Category",
-        "Story Summary", "Story Points", "Reasoning", "Approved?",
-    ])
+        "Story Summary", "Story Points", "Reasoning",
+    ]
+    if obs_sheet:
+        cols.append("Covers proposed story")
+    cols.append("Approved?")
+    _header_row(ws, cols)
 
     for epic_key, stories in sorted(plan_collector.items()):
         epic_summary = summary_map.get(epic_key, "")
         component = comp_map.get(epic_key, "")
         for story in stories:
-            if story.category not in categories:
+            belongs = (
+                _is_obs_sheet_story(story) if obs_sheet
+                else (
+                    story.category in _QE_DOCS_CATEGORIES
+                    and not story.linked_to
+                )
+            )
+            if not belongs:
                 continue
-            ws.append([
+            row: list[Any] = [
                 epic_key,
                 epic_summary,
                 component,
@@ -216,8 +246,11 @@ def _build_review_sheet(
                 story.summary,
                 story.story_points or "",
                 story.reasoning,
-                "",  # Approved? — owner fills in
-            ])
+            ]
+            if obs_sheet:
+                row.append(story.linked_to or "")
+            row.append("")  # Approved? — owner fills in
+            ws.append(row)
             if jira_url:
                 cell = ws.cell(ws.max_row, 1)
                 cell.hyperlink = (
@@ -228,7 +261,9 @@ def _build_review_sheet(
     _freeze_top(ws)
     _shade_alt_rows(ws)
     _auto_width(ws)
-    ws.column_dimensions["G"].width = 60  # Reasoning — let it wrap.
+    # Reasoning column — let it wrap.
+    reason_col = get_column_letter(cols.index("Reasoning") + 1)
+    ws.column_dimensions[reason_col].width = 60
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
@@ -271,7 +306,7 @@ def build_xlsx(
             title="QE & Docs Stories",
             plan_collector=plan_collector,
             tallies=tallies,
-            categories=_QE_DOCS_CATEGORIES,
+            obs_sheet=False,
             jira_url=jira_url,
         )
         _build_review_sheet(
@@ -279,7 +314,7 @@ def build_xlsx(
             title="Observability Stories",
             plan_collector=plan_collector,
             tallies=tallies,
-            categories=_OBS_CATEGORIES,
+            obs_sheet=True,
             jira_url=jira_url,
         )
 

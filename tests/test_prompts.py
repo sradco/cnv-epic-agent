@@ -155,7 +155,6 @@ class TestGetSystemPromptWithDocs:
     def test_docs_minimal_description(self):
         lowered = get_system_prompt(["docs"]).lower()
         assert "nothing else" in lowered
-        assert '"why this is needed"' in lowered
 
     def test_docs_no_docs_for_new_metrics(self):
         lowered = get_system_prompt(["docs"]).lower()
@@ -172,7 +171,7 @@ class TestGetSystemPromptWithDocs:
         lowered = get_system_prompt(["docs"]).lower()
         assert "runbook" in lowered
         assert "developer's" in lowered
-        assert "do not propose a separate docs story" in lowered
+        assert "do not propose a docs story just for writing a runbook" in lowered
 
     def test_docs_rules_not_injected_without_docs(self):
         lowered = get_system_prompt(["metrics"]).lower()
@@ -193,7 +192,6 @@ class TestGetSystemPromptWithQE:
         assert "alert rule tests" in lowered
         assert "dashboard verification" in lowered
         assert "end-to-end pipeline" in lowered
-        assert "upgrade/rollback" in lowered
 
     def test_qe_distinguishes_new_vs_migrated(self):
         lowered = get_system_prompt(["qe"]).lower()
@@ -608,37 +606,68 @@ class TestDocsRuleGuardrails:
     def _docs_prompt(self):
         return get_system_prompt(["metrics", "alerts", "dashboards", "docs"])
 
-    def test_new_dashboard_no_docs_story_rule_present(self):
-        """Brand-new dashboards must not trigger a docs story."""
+    def test_linked_to_field_explained_for_docs(self):
+        """Docs rules must explain the linked_to field."""
         prompt = self._docs_prompt()
-        assert (
-            "brand-new dashboard" in prompt.lower()
-            or "brand-new" in prompt.lower()
-        ), "Rule blocking docs stories for newly proposed dashboards is missing"
+        assert "linked_to" in prompt, (
+            "linked_to field explanation is missing from docs rules"
+        )
 
-    def test_scope_rule_covers_all_obs_categories(self):
-        """SCOPE RULE must mention all observability categories explicitly."""
+    def test_two_sources_described(self):
+        """Docs rules must describe both valid sources (existing vs proposed)."""
         prompt = self._docs_prompt()
         lower = prompt.lower()
-        assert "proposed in this same response" in lower, (
-            "SCOPE RULE phrase 'proposed in this same response' is missing"
+        assert "already-shipped" in lower or "already shipped" in lower, (
+            "Existing artifact source is missing from docs rules"
         )
-        for cat in ("metrics", "alerts", "dashboards", "telemetry"):
-            assert cat in lower, f"SCOPE RULE does not mention category '{cat}'"
+        assert "proposing in this same response" in lower, (
+            "Proposed obs item source is missing from docs rules"
+        )
 
     def test_bad_example_dashboard_docs_present(self):
-        """The Autopilot dashboard BAD example must be in the prompt."""
+        """The Autopilot dashboard example must be in the prompt."""
         prompt = self._docs_prompt()
         assert "Autopilot Health dashboard" in prompt, (
-            "BAD docs example for newly proposed dashboard is missing"
+            "Autopilot dashboard example is missing from docs rules"
         )
 
-    def test_existing_dashboard_change_is_valid(self):
-        """The GOOD example for updated existing dashboards must be present."""
+    def test_good_example_existing_artifact_present(self):
+        """The GOOD example for updating an existing artifact must be present."""
         prompt = self._docs_prompt()
-        assert "already-shipped" in prompt.lower() or "already shipped" in prompt.lower() or \
-               "already implemented" in prompt.lower() or "already-implemented" in prompt.lower(), (
-            "GOOD docs example for existing artifact changes is missing"
+        assert "VM Health Overview" in prompt, (
+            "GOOD example for existing artifact change is missing"
+        )
+
+
+class TestQERuleGuardrails:
+    """Spot-check that key QE-rule guardrail phrases survive edits."""
+
+    def _qe_prompt(self):
+        return get_system_prompt(["metrics", "alerts", "qe"])
+
+    def test_linked_to_field_explained_for_qe(self):
+        """QE rules must explain the linked_to field."""
+        prompt = self._qe_prompt()
+        assert "linked_to" in prompt, (
+            "linked_to field explanation is missing from QE rules"
+        )
+
+    def test_two_sources_described_for_qe(self):
+        """QE rules must describe both valid sources."""
+        prompt = self._qe_prompt()
+        lower = prompt.lower()
+        assert "existing jira child issue" in lower, (
+            "Existing child issue source missing from QE rules"
+        )
+        assert "proposing in this same response" in lower, (
+            "Proposed obs item source missing from QE rules"
+        )
+
+    def test_bad_example_missing_linked_to_present(self):
+        """BAD example for missing linked_to must be present."""
+        prompt = self._qe_prompt()
+        assert "role aggregation metric" in prompt.lower(), (
+            "BAD linked_to example is missing from QE rules"
         )
 
 
