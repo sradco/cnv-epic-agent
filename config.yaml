@@ -486,3 +486,17 @@ subtask_templates:
 
         - Metrics implementation (separate story)
         - Dashboard panels (separate story)
+
+# ── Google Sheets integration (optional) ─────────────────────────────────────
+# Uncomment and fill in to enable --output-gsheet and --apply-gsheet.
+#
+# google:
+#   # Path to a Google service-account JSON key file.
+#   # If omitted, the GOOGLE_APPLICATION_CREDENTIALS env var is used.
+#   # If neither is set, an OAuth browser flow is triggered on first use.
+#   credentials_file: ""
+#
+#   # Google Drive folder ID where new Sheets are created.
+#   # Leave empty (or omit) to create in My Drive root.
+#   # Share this folder with your service-account email if using SA auth.
+#   drive_folder_id: ""

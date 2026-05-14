@@ -102,6 +102,21 @@ class TelemetryConfig:
 
 
 @dataclass
+class GoogleConfig:
+    """Optional Google Sheets integration settings.
+
+    credentials_file: path to a service-account JSON key.
+      Falls back to the GOOGLE_APPLICATION_CREDENTIALS env var,
+      then to an OAuth browser flow if neither is set.
+    drive_folder_id: Google Drive folder ID where new Sheets are
+      created.  Leave empty to create in My Drive root.
+    """
+
+    credentials_file: str = ""
+    drive_folder_id: str = ""
+
+
+@dataclass
 class AppConfig:
     """Top-level typed config.  Sections not modelled here are
     available via ``raw`` for backward compatibility."""
@@ -112,6 +127,7 @@ class AppConfig:
     agent: AgentConfig = field(default_factory=AgentConfig)
     discovery: DiscoveryConfig = field(default_factory=DiscoveryConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+    google: GoogleConfig = field(default_factory=GoogleConfig)
 
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -193,6 +209,7 @@ class AppConfig:
         disc = d.get("discovery", {}) or {}
         tel = d.get("telemetry", {}) or {}
         sp = a.get("story_points", {}) or {}
+        goog = d.get("google", {}) or {}
 
         cfg = cls(
             jira=JiraConfig(
@@ -342,6 +359,14 @@ class AppConfig:
             telemetry=TelemetryConfig(
                 cmo_allowlist_url=str(
                     tel.get("cmo_allowlist_url", ""),
+                ),
+            ),
+            google=GoogleConfig(
+                credentials_file=str(
+                    goog.get("credentials_file", ""),
+                ),
+                drive_folder_id=str(
+                    goog.get("drive_folder_id", ""),
                 ),
             ),
             raw=d,

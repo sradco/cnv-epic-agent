@@ -1795,6 +1795,159 @@ def apply_xlsx(
     )
 
 
+def apply_gsheet(
+    sheet_url_or_id: str,
+    *,
+    config_path: str | None = None,
+    epic_keys: list[str] | None = None,
+) -> RunResult:
+    """Apply approved stories from a Google Sheet report.
+
+    Reads the "QE & Docs Stories" and "Observability Stories" sheets from
+    the given Google Sheet URL or ID, filters rows where "Approved?" is
+    non-empty (and not a rejection value), then creates the corresponding
+    Jira stories.  Identical to ``apply_xlsx`` but reading from Google
+    Sheets instead of an XLSX file.
+
+    Parameters:
+    - sheet_url_or_id: Full Google Sheets URL or bare spreadsheet ID.
+    - config_path:     Optional path to config.yaml.
+    - epic_keys:       If set, only process epics whose key is in this list.
+    """
+    from agent.export.gsheet_report import read_gsheet_plan
+
+    run_id = uuid.uuid4().hex[:8]
+    app_cfg = _load_config(config_path)
+    cfg = app_cfg.raw
+
+    try:
+        version, plan_collector = read_gsheet_plan(
+            sheet_url_or_id, google_cfg=app_cfg.google,
+        )
+    except Exception as exc:
+        raise ConfigError(
+            f"Cannot read Google Sheet '{sheet_url_or_id}': {exc}"
+        ) from exc
+
+    if not version:
+        raise ConfigError(
+            f"No Version found in Run Info sheet of '{sheet_url_or_id}'. "
+            "Re-generate the report with --version set."
+        )
+
+    client = get_jira_client(cfg)
+    max_stories = app_cfg.agent.max_stories_per_run
+
+    ctx = _RunContext(
+        client=client,
+        cfg=cfg,
+        apply=True,
+        version=version,
+        max_stories=max_stories,
+        model="(gsheet)",
+        temperature=0.0,
+        story_points_guidance="",
+        run_id=run_id,
+    )
+
+    run_timestamp = datetime.now(timezone.utc).strftime(
+        "%Y-%m-%d %H:%M UTC"
+    )
+    filter_set = {k.upper() for k in epic_keys} if epic_keys else None
+
+    lines: list[str] = [
+        "# Epic Agent Run (APPLY FROM GOOGLE SHEET)",
+        "",
+        f"- **Date:** {run_timestamp}",
+        f"- **Google Sheet:** {sheet_url_or_id}",
+        f"- **Version:** {version}",
+        f"- **Run ID:** {run_id}",
+    ]
+    if filter_set:
+        lines.append(
+            f"- **Epic filter:** {', '.join(sorted(filter_set))}"
+        )
+    lines.append("")
+
+    try:
+        obs_epic = find_or_create_obs_epic(
+            client, cfg, version, dry_run=False,
+        )
+    except Exception:
+        logger.error(
+            "[%s] Failed to resolve observability epic",
+            run_id, exc_info=True,
+        )
+        return RunResult(
+            report="\n".join(
+                lines + ["**ERROR**: Could not resolve observability epic."]
+            ),
+            tallies=[],
+            plan_collector={},
+            metadata={"Date": run_timestamp, "Version": version,
+                      "Run ID": run_id},
+        )
+
+    entries = list(plan_collector.items())
+    if filter_set:
+        entries = [
+            (k, v) for k, v in entries
+            if k.upper() in filter_set
+        ]
+        if not entries:
+            return RunResult(
+                report="\n".join(
+                    lines + [
+                        f"**No matching epics in sheet for: "
+                        f"{', '.join(sorted(filter_set))}**"
+                    ]
+                ),
+                tallies=[],
+                plan_collector={},
+                metadata={"Date": run_timestamp, "Version": version,
+                          "Run ID": run_id},
+            )
+
+    for epic_key, stories in sorted(entries):
+        if not stories:
+            continue
+        lines.append(f"## {epic_key}")
+        lines.append("")
+
+        try:
+            existing = find_existing_obs_stories(
+                client, cfg, obs_epic["key"], epic_key,
+            )
+        except Exception:
+            logger.warning(
+                "[%s] Could not fetch existing stories for %s",
+                run_id, epic_key, exc_info=True,
+            )
+            existing = []
+
+        story_lines = _dedup_and_create(
+            stories, epic_key, obs_epic, existing, ctx,
+        )
+        lines.extend(story_lines)
+        lines.append("")
+
+    summary_lines = _build_report_summary(
+        ctx.counters, len(entries), apply=True,
+    )
+    report = "\n".join(lines[:3] + summary_lines + lines[3:])
+    return RunResult(
+        report=report,
+        tallies=list(ctx.counters.epic_tallies),
+        plan_collector={},
+        metadata={
+            "Date": run_timestamp,
+            "Google Sheet": sheet_url_or_id,
+            "Version": version,
+            "Run ID": run_id,
+        },
+    )
+
+
 def run(
     epic_keys: list[str] | None = None,
     jql: str | None = None,

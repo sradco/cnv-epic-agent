@@ -171,6 +171,26 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--output-gsheet",
+        action="store_true",
+        default=False,
+        help=(
+            "Create a Google Sheet report in addition to the normal "
+            "output. Requires Google credentials (see config.yaml "
+            "google: section). Prints the sheet URL on completion."
+        ),
+    )
+    parser.add_argument(
+        "--apply-gsheet",
+        default=None,
+        metavar="URL_OR_ID",
+        help=(
+            "Load a Google Sheet report (created by --output-gsheet) "
+            "and create stories for every row where 'Approved?' is "
+            "non-empty. Pass the full sheet URL or the bare spreadsheet ID."
+        ),
+    )
+    parser.add_argument(
         "--config", "-c",
         default=None,
         help=(
@@ -235,12 +255,25 @@ def main() -> None:
         parser.error(
             "--apply-xlsx and --save-plan are mutually exclusive."
         )
+    if args.apply_gsheet and (
+        args.apply_plan or args.apply_xlsx or args.save_plan or args.apply
+    ):
+        parser.error(
+            "--apply-gsheet is mutually exclusive with "
+            "--apply-plan, --apply-xlsx, --save-plan, and --apply."
+        )
 
-    from agent.runner import apply_plan, apply_xlsx, run
+    from agent.runner import apply_gsheet, apply_plan, apply_xlsx, run
 
     _run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
-    if args.apply_xlsx:
+    if args.apply_gsheet:
+        report = apply_gsheet(
+            args.apply_gsheet,
+            config_path=args.config,
+            epic_keys=args.epic,
+        )
+    elif args.apply_xlsx:
         report = apply_xlsx(
             args.apply_xlsx,
             config_path=args.config,
@@ -362,6 +395,34 @@ def main() -> None:
                 fh.write(rendered)
                 fh.write("\n")
             log.info("Report written to %s", output_path)
+
+    if args.output_gsheet:
+        from agent.export.gsheet_report import build_gsheet
+        import yaml as _yaml
+        from schemas.config import GoogleConfig
+        _gcfg_raw: dict = {}
+        try:
+            with open(args.config or "config.yaml", encoding="utf-8") as _f:
+                _gcfg_raw = _yaml.safe_load(_f).get("google", {}) or {}
+        except Exception:
+            pass
+        _gcfg = GoogleConfig(
+            credentials_file=str(
+                _gcfg_raw.get("credentials_file", "")
+            ),
+            drive_folder_id=str(
+                _gcfg_raw.get("drive_folder_id", "")
+            ),
+        )
+        sheet_url = build_gsheet(
+            report.metadata,
+            report.tallies,
+            report.plan_collector,
+            google_cfg=_gcfg,
+            summary_only=getattr(args, "summary_only", False),
+        )
+        log.info("Google Sheet created: %s", sheet_url)
+        print(f"\nGoogle Sheet: {sheet_url}")
 
 
 if __name__ == "__main__":
