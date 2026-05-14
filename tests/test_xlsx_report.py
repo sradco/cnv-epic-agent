@@ -75,7 +75,10 @@ class TestBuildXlsx:
         wb = self._build([_make_tally("CNV-100")])
         assert "Run Info" in wb.sheetnames
         assert any(n.startswith("Release Planning") for n in wb.sheetnames)
+        # Legacy "Stories" tab is gone; replaced by two review sheets.
         assert "Stories" not in wb.sheetnames
+        assert "QE & Docs Stories" in wb.sheetnames
+        assert "Observability Stories" in wb.sheetnames
 
     def test_summary_sheet_name_includes_version(self):
         wb = self._build(
@@ -91,19 +94,27 @@ class TestBuildXlsx:
         )
         assert "Release Planning" in wb.sheetnames
 
-    def test_stories_sheet_present_when_plan_not_empty(self):
-        story = StoryPayload(
-            category="metrics",
-            summary="Add metric X",
-            description="desc",
-            story_points=3,
-            reasoning="New behavior",
-        )
-        wb = self._build(
-            [_make_tally("CNV-100")],
-            plan_collector={"CNV-100": [story]},
-        )
-        assert "Stories" in wb.sheetnames
+    def test_review_sheets_always_present_when_not_summary_only(self):
+        wb = self._build([_make_tally("CNV-100")])
+        assert "QE & Docs Stories" in wb.sheetnames
+        assert "Observability Stories" in wb.sheetnames
+
+    def test_review_sheets_absent_in_summary_only_mode(self):
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+            path = f.name
+        try:
+            build_xlsx(
+                path,
+                metadata={"Date": "2026-05-14"},
+                tallies=[_make_tally("CNV-100")],
+                plan_collector={},
+                summary_only=True,
+            )
+            wb = openpyxl.load_workbook(path)
+            assert "QE & Docs Stories" not in wb.sheetnames
+            assert "Observability Stories" not in wb.sheetnames
+        finally:
+            os.unlink(path)
 
     def test_summary_sheet_has_epic_row(self):
         t = _make_tally(
@@ -135,7 +146,7 @@ class TestBuildXlsx:
         assert "Version" in values
         assert "5.0.0" in values
 
-    def test_stories_sheet_has_story_row(self):
+    def test_obs_stories_sheet_has_story_row(self):
         story = StoryPayload(
             category="alerts",
             summary="Add GPU alert",
@@ -148,29 +159,86 @@ class TestBuildXlsx:
                          components=["CNV Compute"])],
             plan_collector={"CNV-400": [story]},
         )
-        ws = wb["Stories"]
+        ws = wb["Observability Stories"]
         values = [
             str(cell.value or "") for row in ws.iter_rows(min_row=2)
             for cell in row
         ]
         assert "CNV-400" in values
-        assert "GPU passthrough epic" in values  # Epic Summary column
+        assert "GPU passthrough epic" in values
         assert "Add GPU alert" in values
         assert "alerts" in values
         assert "New alert needed" in values
 
-    def test_stories_sheet_has_epic_summary_column_header(self):
+    def test_qe_docs_stories_sheet_has_story_row(self):
         story = StoryPayload(
-            category="metrics", summary="Add metric",
-            description="desc", story_points=3, reasoning="r",
+            category="qe",
+            summary="QE: test GPU passthrough",
+            description="desc",
+            story_points=3,
+            reasoning="New feature needs test coverage",
         )
         wb = self._build(
-            [_make_tally("CNV-410")],
-            plan_collector={"CNV-410": [story]},
+            [_make_tally("CNV-401", summary="GPU passthrough epic")],
+            plan_collector={"CNV-401": [story]},
         )
-        ws = wb["Stories"]
-        headers = [str(cell.value or "") for cell in ws[1]]
-        assert "Epic Summary" in headers
+        ws = wb["QE & Docs Stories"]
+        values = [
+            str(cell.value or "") for row in ws.iter_rows(min_row=2)
+            for cell in row
+        ]
+        assert "CNV-401" in values
+        assert "QE: test GPU passthrough" in values
+        assert "qe" in values
+
+    def test_stories_routed_to_correct_sheet(self):
+        """Observability stories land in Observability sheet, QE in QE sheet."""
+        obs_story = StoryPayload(
+            category="metrics", summary="Add metric X",
+            description="desc", story_points=2, reasoning="r",
+        )
+        qe_story = StoryPayload(
+            category="qe", summary="QE: cover metric X",
+            description="desc", story_points=2, reasoning="r",
+        )
+        wb = self._build(
+            [_make_tally("CNV-402")],
+            plan_collector={"CNV-402": [obs_story, qe_story]},
+        )
+        obs_values = [
+            str(c.value or "")
+            for row in wb["Observability Stories"].iter_rows(min_row=2)
+            for c in row
+        ]
+        qe_values = [
+            str(c.value or "")
+            for row in wb["QE & Docs Stories"].iter_rows(min_row=2)
+            for c in row
+        ]
+        assert "Add metric X" in obs_values
+        assert "QE: cover metric X" not in obs_values
+        assert "QE: cover metric X" in qe_values
+        assert "Add metric X" not in qe_values
+
+    def test_review_sheets_have_approved_column(self):
+        wb = self._build([_make_tally("CNV-410")])
+        for sheet_name in ("QE & Docs Stories", "Observability Stories"):
+            headers = [
+                str(cell.value or "") for cell in wb[sheet_name][1]
+            ]
+            assert "Approved?" in headers, (
+                f"'Approved?' missing from {sheet_name}"
+            )
+
+    def test_review_sheets_have_epic_summary_column_header(self):
+        wb = self._build([_make_tally("CNV-410")])
+        for sheet_name in ("QE & Docs Stories", "Observability Stories"):
+            headers = [
+                str(cell.value or "") for cell in wb[sheet_name][1]
+            ]
+            assert "Epic Summary" in headers, (
+                f"'Epic Summary' missing from {sheet_name}"
+            )
 
     def test_summary_only_omits_proposed_columns(self):
         t = _make_tally("CNV-500", dev_ex=5, dev_pr=3, qe_pr=2)
@@ -191,8 +259,8 @@ class TestBuildXlsx:
             assert "Dev SP (existing)" in headers
             assert "Dev SP (proposed)" not in headers
             assert "Total Proposed SP" not in headers
-            # Stories sheet must not be present in summary-only mode.
-            assert "Stories" not in wb.sheetnames
+            assert "QE & Docs Stories" not in wb.sheetnames
+            assert "Observability Stories" not in wb.sheetnames
         finally:
             os.unlink(path)
 

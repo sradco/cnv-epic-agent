@@ -1,13 +1,19 @@
 """Export agent run results to a multi-sheet XLSX workbook.
 
 Sheets produced:
-  Run Info   — metadata (date, version, model, filters, run ID)
-  Summary    — one row per epic (component, key, summary, status,
-               version, dev/qe/docs SP existing + proposed).
-               In summary-only mode the proposed SP columns are omitted.
-  Stories    — one row per proposed story (epic key, epic summary,
-               component, category, summary, story points, reasoning).
-               Omitted in summary-only mode.
+  Run Info           — metadata (date, version, model, filters, run ID)
+  Release Planning   — one row per epic (component, key, summary, status,
+                       version, dev/qe/docs SP existing + proposed).
+                       In summary-only mode the proposed SP columns are
+                       omitted.
+  QE & Docs Stories  — proposed QE/Docs stories with a blank Approved?
+                       column for the epic owner to review.
+                       Always present (headers only if no stories).
+                       Omitted in summary-only mode.
+  Observability Stories — proposed observability stories (metrics, alerts,
+                       dashboards, telemetry) with a blank Approved?
+                       column.  Always present (headers only if no
+                       stories).  Omitted in summary-only mode.
 """
 
 from __future__ import annotations
@@ -163,15 +169,29 @@ def _build_summary_sheet(
     _auto_width(ws)
 
 
-def _build_stories_sheet(
+_QE_DOCS_CATEGORIES = {"qe", "docs"}
+_OBS_CATEGORIES = {"metrics", "alerts", "dashboards", "telemetry"}
+
+
+def _build_review_sheet(
     ws: Any,
+    title: str,
     plan_collector: dict[str, list[StoryPayload]],
     tallies: list[_EpicTally],
+    categories: set[str],
     jira_url: str = "",
 ) -> None:
-    ws.title = "Stories"
+    """Populate a review sheet for one group of story categories.
 
-    # Build quick lookups: epic_key → summary / component string
+    Args:
+        title:       Sheet title (e.g. "QE & Docs Stories").
+        categories:  Set of category strings that belong on this sheet.
+        plan_collector: Full plan keyed by epic_key.
+        tallies:     Used to look up epic summaries and components.
+        jira_url:    Base Jira URL for hyperlinks (optional).
+    """
+    ws.title = title
+
     summary_map: dict[str, str] = {t.key: t.summary for t in tallies}
     comp_map: dict[str, str] = {
         t.key: ", ".join(t.components) for t in tallies
@@ -179,13 +199,15 @@ def _build_stories_sheet(
 
     _header_row(ws, [
         "Epic Key", "Epic Summary", "Component", "Category",
-        "Story Summary", "Story Points", "Reasoning",
+        "Story Summary", "Story Points", "Reasoning", "Approved?",
     ])
 
     for epic_key, stories in sorted(plan_collector.items()):
         epic_summary = summary_map.get(epic_key, "")
         component = comp_map.get(epic_key, "")
         for story in stories:
+            if story.category not in categories:
+                continue
             ws.append([
                 epic_key,
                 epic_summary,
@@ -194,8 +216,8 @@ def _build_stories_sheet(
                 story.summary,
                 story.story_points or "",
                 story.reasoning,
+                "",  # Approved? — owner fills in
             ])
-            # Hyperlink the Epic Key cell.
             if jira_url:
                 cell = ws.cell(ws.max_row, 1)
                 cell.hyperlink = (
@@ -206,8 +228,7 @@ def _build_stories_sheet(
     _freeze_top(ws)
     _shade_alt_rows(ws)
     _auto_width(ws)
-    # Reasoning column is wide — let it wrap.
-    ws.column_dimensions["G"].width = 60
+    ws.column_dimensions["G"].width = 60  # Reasoning — let it wrap.
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
@@ -230,8 +251,8 @@ def build_xlsx(
         plan_collector:  Proposed stories keyed by epic key.
         jira_url:        Base Jira URL for hyperlinks (optional).
         summary_only:    When True, omit proposed-SP columns from the Summary
-                         sheet and skip the Stories sheet entirely.  Use with
-                         ``--summary-only`` to get a lightweight inventory
+                         sheet and skip the story review sheets entirely.  Use
+                         with ``--summary-only`` to get a lightweight inventory
                          report without running the LLM.
     """
     wb = Workbook()
@@ -244,10 +265,22 @@ def build_xlsx(
         jira_url=jira_url, summary_only=summary_only,
         version=version,
     )
-    if plan_collector and not summary_only:
-        _build_stories_sheet(
-            wb.create_sheet("Stories"),
-            plan_collector, tallies, jira_url=jira_url,
+    if not summary_only:
+        _build_review_sheet(
+            wb.create_sheet("QE & Docs Stories"),
+            title="QE & Docs Stories",
+            plan_collector=plan_collector,
+            tallies=tallies,
+            categories=_QE_DOCS_CATEGORIES,
+            jira_url=jira_url,
+        )
+        _build_review_sheet(
+            wb.create_sheet("Observability Stories"),
+            title="Observability Stories",
+            plan_collector=plan_collector,
+            tallies=tallies,
+            categories=_OBS_CATEGORIES,
+            jira_url=jira_url,
         )
 
     wb.save(path)
